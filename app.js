@@ -1,6 +1,22 @@
 // ============================================================
 // 空き時間ビューア — app.js
 // ============================================================
+//
+// ▼設定（編集者が直接書き換える場所）▼
+// -----------------------------------------------------------
+const CONFIG = {
+  // 公開スプレッドシートのCSV URL（ファイル→共有→ウェブに公開→形式:CSV で発行したもの）
+  // 空のままだとサンプルデータが自動表示されます。
+  CSV_URL: 'https://docs.google.com/spreadsheets/d/18HLCvVCuYxIAHsMJhSyPOqRPmp0bz8xDsdHD6WxEZ8A/export?format=csv&gid=0',
+
+  // 日時が "8/1 9:00" のように年を省略した書式の場合に使う年
+  DEFAULT_YEAR: 2026,
+
+  // グリッドに表示する時間帯（この範囲外のデータは表示されません）
+  DISPLAY_START: '10:00',
+  DISPLAY_END: '22:00',
+};
+// -----------------------------------------------------------
 
 const state = {
   names: [],                 // 人物名の配列
@@ -8,37 +24,30 @@ const state = {
   // slotData[date][time] = { name: 0|1, ... }  time は 'HH:MM' (30分刻み)
   slotData: {},
   granularity: 'day',
-  customBlocks: [],          // {id, start, end, label}
 };
 
 const SAMPLE_CSV =
 `datetime,田中,鈴木,佐藤,山本
-2026-08-01 09:00,1,0,0,0
-2026-08-01 09:30,1,0,0,0
-2026-08-01 10:00,1,1,0,0
-2026-08-01 10:30,0,1,0,0
-2026-08-01 11:00,0,0,0,0
-2026-08-01 11:30,0,0,0,0
+2026-08-01 10:00,1,0,0,0
+2026-08-01 10:30,1,0,0,0
+2026-08-01 11:00,1,1,0,0
+2026-08-01 11:30,0,1,0,0
 2026-08-01 13:00,1,1,1,1
 2026-08-01 13:30,1,1,1,1
 2026-08-01 14:00,0,1,1,0
 2026-08-01 14:30,0,0,1,0
-2026-08-02 09:00,0,0,0,0
-2026-08-02 09:30,0,0,0,0
-2026-08-02 10:00,1,0,0,1
-2026-08-02 10:30,1,0,0,1
-2026-08-02 11:00,1,1,0,1
-2026-08-02 11:30,1,1,0,1
-2026-08-02 13:00,0,0,0,0
-2026-08-02 13:30,0,0,0,0
+2026-08-02 10:00,0,0,0,0
+2026-08-02 10:30,0,0,0,0
+2026-08-02 11:00,1,0,0,1
+2026-08-02 11:30,1,0,0,1
+2026-08-02 13:00,1,1,0,1
+2026-08-02 13:30,1,1,0,1
 2026-08-02 14:00,0,0,1,0
 2026-08-02 14:30,0,0,1,0
-2026-08-03 09:00,1,1,1,1
-2026-08-03 09:30,1,1,1,1
 2026-08-03 10:00,1,1,1,1
 2026-08-03 10:30,1,1,1,1
-2026-08-03 11:00,0,0,0,0
-2026-08-03 11:30,0,0,0,0
+2026-08-03 11:00,1,1,1,1
+2026-08-03 11:30,1,1,1,1
 2026-08-03 13:00,0,1,0,0
 2026-08-03 13:30,0,0,0,0
 2026-08-03 14:00,0,0,0,1
@@ -46,20 +55,11 @@ const SAMPLE_CSV =
 
 // ---------------- DOM refs ----------------
 const el = (id) => document.getElementById(id);
-const sheetUrlInput = el('sheetUrl');
-const csvPasteInput = el('csvPaste');
-const yearInput = el('yearInput');
 const loadError = el('loadError');
 const statusDot = el('statusDot');
 const statusText = el('statusText');
 const gridPanel = el('gridPanel');
 const mainGridTable = el('mainGrid');
-const addBlockToggle = el('addBlockToggle');
-const addBlockBar = el('addBlockBar');
-const customChipRow = el('customChipRow');
-const customStartSel = el('customStart');
-const customEndSel = el('customEnd');
-const customLabelInput = el('customLabel');
 const tooltip = el('tooltip');
 
 // ---------------- Helpers ----------------
@@ -104,11 +104,8 @@ function parseTimeOnly(str) {
 // ---------------- CSV -> state ----------------
 function ingestCSV(csvText) {
   loadError.hidden = true;
-  const defaultYear = parseInt(yearInput.value, 10) || new Date().getFullYear();
+  const defaultYear = CONFIG.DEFAULT_YEAR;
   const parsed = Papa.parse(csvText.trim(), { skipEmptyLines: true });
-  if (parsed.errors && parsed.errors.length) {
-    // Papa is lenient; only bail on hard failures
-  }
   const rows = parsed.data;
   if (!rows || rows.length < 2) {
     showError('CSVにデータ行が見つかりませんでした。');
@@ -183,11 +180,9 @@ function ingestCSV(csvText) {
   state.slotData = slotData;
 
   statusDot.className = 'status-dot ok';
-  statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${names.length}人（${parsedCount}コマ）`;
+  statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${names.length}人`;
   gridPanel.hidden = false;
-  buildCustomTimeOptions();
   renderMainGrid();
-  renderCustomChips();
   return true;
 }
 
@@ -225,31 +220,38 @@ function aggregate(date, startTime, endTime, name) {
 }
 
 // ---------------- Block definitions per granularity ----------------
+// すべて CONFIG.DISPLAY_START 〜 CONFIG.DISPLAY_END の範囲にクリップされる
 function blocksForGranularity(g) {
+  const dispStart = timeToMinutes(CONFIG.DISPLAY_START);
+  const dispEnd = timeToMinutes(CONFIG.DISPLAY_END);
+
   switch (g) {
     case 'day':
-      return [{ label: '終日', start: '00:00', end: '24:00' }];
-    case 'ampm':
-      return [
-        { label: '午前', start: '00:00', end: '12:00' },
-        { label: '午後', start: '12:00', end: '24:00' },
-      ];
+      return [{ label: '終日', start: CONFIG.DISPLAY_START, end: CONFIG.DISPLAY_END }];
+    case 'ampm': {
+      const noon = 12 * 60;
+      const blocks = [];
+      if (dispStart < noon) {
+        blocks.push({ label: '午前', start: CONFIG.DISPLAY_START, end: minutesToTime(Math.min(noon, dispEnd)) });
+      }
+      if (dispEnd > noon) {
+        blocks.push({ label: '午後', start: minutesToTime(Math.max(noon, dispStart)), end: CONFIG.DISPLAY_END });
+      }
+      return blocks;
+    }
     case 'hour': {
       const arr = [];
-      for (let h = 0; h < 24; h++) {
-        arr.push({ label: `${pad2(h)}:00`, start: `${pad2(h)}:00`, end: `${pad2(h + 1 === 24 ? 24 : h + 1)}:00` });
+      for (let min = dispStart; min < dispEnd; min += 60) {
+        const end = Math.min(min + 60, dispEnd);
+        arr.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
       }
       return arr;
     }
     case 'half': {
       const arr = [];
-      for (let h = 0; h < 24; h++) {
-        for (const m of [0, 30]) {
-          const start = `${pad2(h)}:${pad2(m)}`;
-          const endMin = h * 60 + m + 30;
-          const end = endMin === 24 * 60 ? '24:00' : minutesToTime(endMin);
-          arr.push({ label: start, start, end });
-        }
+      for (let min = dispStart; min < dispEnd; min += 30) {
+        const end = Math.min(min + 30, dispEnd);
+        arr.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
       }
       return arr;
     }
@@ -281,8 +283,7 @@ function renderMainGrid() {
     groupTr.innerHTML = `<th>${formatDateLabel(date)}</th>` + `<td class="spacer" colspan="${state.names.length}"></td>`;
     tbody.appendChild(groupTr);
 
-    presetBlocks.forEach((block) => appendBlockRow(tbody, date, block, false));
-    state.customBlocks.forEach((block) => appendBlockRow(tbody, date, block, true));
+    presetBlocks.forEach((block) => appendBlockRow(tbody, date, block));
   });
 
   table.innerHTML = '';
@@ -290,9 +291,8 @@ function renderMainGrid() {
   table.appendChild(tbody);
 }
 
-function appendBlockRow(tbody, date, block, isCustom) {
+function appendBlockRow(tbody, date, block) {
   const tr = document.createElement('tr');
-  if (isCustom) tr.className = 'custom-row';
   const th = document.createElement('th');
   th.innerHTML = `<span class="tick"></span>${block.label}`;
   tr.appendChild(th);
@@ -313,21 +313,6 @@ function appendBlockRow(tbody, date, block, isCustom) {
   tbody.appendChild(tr);
 }
 
-function renderCustomChips() {
-  customChipRow.innerHTML = '';
-  state.customBlocks.forEach((block) => {
-    const chip = document.createElement('span');
-    chip.className = 'custom-chip';
-    chip.innerHTML = `${block.label}<span class="chip-remove" title="削除">×</span>`;
-    chip.querySelector('.chip-remove').onclick = () => {
-      state.customBlocks = state.customBlocks.filter((b) => b.id !== block.id);
-      renderCustomChips();
-      renderMainGrid();
-    };
-    customChipRow.appendChild(chip);
-  });
-}
-
 function showTooltip(e, text) {
   tooltip.hidden = false;
   tooltip.style.left = e.clientX + 14 + 'px';
@@ -337,44 +322,6 @@ function showTooltip(e, text) {
 function hideTooltip() {
   tooltip.hidden = true;
 }
-
-// ---------------- Custom block controls ----------------
-function buildCustomTimeOptions() {
-  customStartSel.innerHTML = '';
-  customEndSel.innerHTML = '';
-  for (let min = 0; min <= 24 * 60; min += 30) {
-    const label = min === 24 * 60 ? '24:00' : minutesToTime(min);
-    const optS = document.createElement('option');
-    optS.value = label; optS.textContent = label;
-    customStartSel.appendChild(optS);
-    const optE = document.createElement('option');
-    optE.value = label; optE.textContent = label;
-    customEndSel.appendChild(optE);
-  }
-  customStartSel.value = '13:00';
-  customEndSel.value = '15:00';
-}
-
-el('addBlockToggle').addEventListener('click', () => {
-  addBlockBar.hidden = !addBlockBar.hidden;
-  addBlockToggle.classList.toggle('active', !addBlockBar.hidden);
-});
-
-el('addBlockBtn').addEventListener('click', () => {
-  const start = customStartSel.value;
-  const end = customEndSel.value;
-  if (timeToMinutes(end === '24:00' ? '24:00' : end) <= timeToMinutes(start)) {
-    alert('終了時刻は開始時刻より後にしてください。');
-    return;
-  }
-  const label = (customLabelInput.value || '').trim() || `${start}〜${end}`;
-  state.customBlocks.push({ id: Date.now() + Math.random(), start, end, label });
-  customLabelInput.value = '';
-  addBlockBar.hidden = true;
-  addBlockToggle.classList.remove('active');
-  renderCustomChips();
-  renderMainGrid();
-});
 
 // ---------------- Granularity control ----------------
 el('granularityControl').addEventListener('click', (e) => {
@@ -386,30 +333,26 @@ el('granularityControl').addEventListener('click', (e) => {
   renderMainGrid();
 });
 
-// ---------------- Data source controls ----------------
-el('loadUrlBtn').addEventListener('click', async () => {
-  const url = sheetUrlInput.value.trim();
-  if (!url) { showError('URLを入力してください。'); return; }
+// ---------------- Auto-load on startup ----------------
+async function autoLoad() {
+  if (!CONFIG.CSV_URL) {
+    // URL未設定の場合はサンプルデータを表示
+    statusText.textContent = 'サンプルデータを表示中（CONFIG.CSV_URL 未設定）';
+    ingestCSV(SAMPLE_CSV);
+    return;
+  }
   statusText.textContent = '読み込み中…';
-  statusDot.className = 'status-dot';
   try {
-    const res = await fetch(url);
+    const res = await fetch(CONFIG.CSV_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     ingestCSV(text);
   } catch (err) {
-    showError('URLからの取得に失敗しました（' + err.message + '）。ブラウザのCORS制限の可能性があります。下のCSV貼り付け欄をお試しください。');
+    showError(
+      'CSVの読み込みに失敗しました（' + err.message + '）。' +
+      'CONFIG.CSV_URL がウェブに公開されたCSV形式のURLか確認してください（app.js冒頭で設定）。'
+    );
   }
-});
+}
 
-el('loadPasteBtn').addEventListener('click', () => {
-  const text = csvPasteInput.value.trim();
-  if (!text) { showError('CSVを貼り付けてください。'); return; }
-  ingestCSV(text);
-});
-
-el('loadSampleBtn').addEventListener('click', () => {
-  csvPasteInput.value = SAMPLE_CSV;
-  yearInput.value = 2026;
-  ingestCSV(SAMPLE_CSV);
-});
+autoLoad();

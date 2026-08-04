@@ -23,59 +23,22 @@
     </div>
     <div class="status" id="dataStatus">
       <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">データ未読み込み</span>
+      <span id="statusText">読み込み中…</span>
     </div>
   </header>
 
-  <section class="panel source-panel">
-    <div class="panel-head">
-      <h2><span class="step">01</span>データソース</h2>
-    </div>
-    <div class="source-grid">
-      <div class="field">
-        <label for="sheetUrl">公開スプレッドシートのCSV URL</label>
-        <div class="input-row">
-          <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv">
-          <button id="loadUrlBtn" class="btn btn-primary">読み込む</button>
-        </div>
-        <p class="hint">スプレッドシート＞ファイル＞共有＞ウェブに公開＞形式「カンマ区切りの値(.csv)」で発行したURLを貼り付けてください。</p>
-      </div>
-      <div class="field">
-        <label for="csvPaste">読み込めない場合：CSVを直接貼り付け</label>
-        <textarea id="csvPaste" rows="3" placeholder="datetime,田中,鈴木,佐藤&#10;2026-08-01 00:00,0,1,0&#10;..."></textarea>
-        <div class="input-row">
-          <button id="loadPasteBtn" class="btn btn-ghost">貼り付けた内容を読み込む</button>
-          <button id="loadSampleBtn" class="btn btn-ghost">サンプルデータを試す</button>
-          <label class="year-field">年 <input type="number" id="yearInput" value="2026" min="2000" max="2100"></label>
-        </div>
-      </div>
-    </div>
-    <p class="error" id="loadError" hidden></p>
-  </section>
+  <p class="error" id="loadError" hidden></p>
 
   <section class="panel grid-panel" id="gridPanel" hidden>
     <div class="panel-head">
-      <h2><span class="step">02</span>空き状況グリッド</h2>
-      <div class="head-controls">
-        <div class="granularity" id="granularityControl">
-          <button data-g="day" class="gbtn active">1日</button>
-          <button data-g="ampm" class="gbtn">午前午後</button>
-          <button data-g="hour" class="gbtn">1時間ごと</button>
-          <button data-g="half" class="gbtn">30分ごと</button>
-        </div>
-        <button id="addBlockToggle" class="btn-plus" title="カスタム時間帯を追加">＋</button>
+      <h2>空き状況グリッド</h2>
+      <div class="granularity" id="granularityControl">
+        <button data-g="day" class="gbtn active">1日</button>
+        <button data-g="ampm" class="gbtn">午前午後</button>
+        <button data-g="hour" class="gbtn">1時間ごと</button>
+        <button data-g="half" class="gbtn">30分ごと</button>
       </div>
     </div>
-
-    <div class="add-block-bar" id="addBlockBar" hidden>
-      <label>開始 <select id="customStart"></select></label>
-      <span class="arrow">→</span>
-      <label>終了 <select id="customEnd"></select></label>
-      <label class="custom-label-field">ラベル（任意） <input type="text" id="customLabel" placeholder="例：ランチMTG候補"></label>
-      <button id="addBlockBtn" class="btn btn-primary">全日付に追加</button>
-    </div>
-
-    <div class="custom-chip-row" id="customChipRow"></div>
 
     <div class="legend">
       <span class="legend-item"><i class="swatch swatch-red"></i>その人が全コマ埋まり</span>
