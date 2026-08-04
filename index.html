@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>空き時間ビューア</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">刻</span>
+      <div class="brand-text">
+        <h1>空き時間ビューア</h1>
+        <p>Availability Grid — 8月の予定を色でまとめて見る</p>
+      </div>
+    </div>
+    <div class="status" id="dataStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">データ未読み込み</span>
+    </div>
+  </header>
+
+  <section class="panel source-panel">
+    <div class="panel-head">
+      <h2><span class="step">01</span>データソース</h2>
+    </div>
+    <div class="source-grid">
+      <div class="field">
+        <label for="sheetUrl">公開スプレッドシートのCSV URL</label>
+        <div class="input-row">
+          <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv">
+          <button id="loadUrlBtn" class="btn btn-primary">読み込む</button>
+        </div>
+        <p class="hint">スプレッドシート＞ファイル＞共有＞ウェブに公開＞形式「カンマ区切りの値(.csv)」で発行したURLを貼り付けてください。</p>
+      </div>
+      <div class="field">
+        <label for="csvPaste">読み込めない場合：CSVを直接貼り付け</label>
+        <textarea id="csvPaste" rows="3" placeholder="datetime,田中,鈴木,佐藤&#10;2026-08-01 00:00,0,1,0&#10;..."></textarea>
+        <div class="input-row">
+          <button id="loadPasteBtn" class="btn btn-ghost">貼り付けた内容を読み込む</button>
+          <button id="loadSampleBtn" class="btn btn-ghost">サンプルデータを試す</button>
+          <label class="year-field">年 <input type="number" id="yearInput" value="2026" min="2000" max="2100"></label>
+        </div>
+      </div>
+    </div>
+    <p class="error" id="loadError" hidden></p>
+  </section>
+
+  <section class="panel grid-panel" id="gridPanel" hidden>
+    <div class="panel-head">
+      <h2><span class="step">02</span>空き状況グリッド</h2>
+      <div class="head-controls">
+        <div class="granularity" id="granularityControl">
+          <button data-g="day" class="gbtn active">1日</button>
+          <button data-g="ampm" class="gbtn">午前午後</button>
+          <button data-g="hour" class="gbtn">1時間ごと</button>
+          <button data-g="half" class="gbtn">30分ごと</button>
+        </div>
+        <button id="addBlockToggle" class="btn-plus" title="カスタム時間帯を追加">＋</button>
+      </div>
+    </div>
+
+    <div class="add-block-bar" id="addBlockBar" hidden>
+      <label>開始 <select id="customStart"></select></label>
+      <span class="arrow">→</span>
+      <label>終了 <select id="customEnd"></select></label>
+      <label class="custom-label-field">ラベル（任意） <input type="text" id="customLabel" placeholder="例：ランチMTG候補"></label>
+      <button id="addBlockBtn" class="btn btn-primary">全日付に追加</button>
+    </div>
+
+    <div class="custom-chip-row" id="customChipRow"></div>
+
+    <div class="legend">
+      <span class="legend-item"><i class="swatch swatch-red"></i>その人が全コマ埋まり</span>
+      <span class="legend-item"><i class="swatch swatch-yellow"></i>一部埋まり</span>
+      <span class="legend-item"><i class="swatch swatch-green"></i>全コマ空き</span>
+      <span class="legend-item"><i class="swatch swatch-nodata"></i>データなし</span>
+    </div>
+    <div class="grid-scroll">
+      <table id="mainGrid"></table>
+    </div>
+  </section>
+
+  <div class="tooltip" id="tooltip" hidden></div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
