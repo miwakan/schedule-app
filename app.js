@@ -8,7 +8,7 @@ const CONFIG = {
   // 公開スプレッドシートのCSV URL（ファイル→共有→ウェブに公開→形式:CSV で発行したもの）
   // 空のままだとサンプルデータが自動表示されます。
   // ★このシートは「name,date,start,end,status,note」の1件1行リスト形式です（旧・日付×時刻の巨大グリッド形式ではありません）
-  CSV_URL: 'https://docs.google.com/spreadsheets/d/1bzxod1otVLb_k1rvVnXZlk20oKsKuMQPqyXOlmjXOSI/export?format=csv&gid=1663163122',
+  CSV_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 
   // 日時が "8/1 9:00" のように年を省略した書式の場合に使う年
   DEFAULT_YEAR: 2026,
@@ -146,13 +146,15 @@ function findColumnIndex(header, key) {
 function ingestCSV(csvText) {
   loadError.hidden = true;
   const defaultYear = CONFIG.DEFAULT_YEAR;
+  // 先頭のBOM（見えない文字）を除去してからパースする
+  csvText = csvText.replace(/^\uFEFF/, '');
   const parsed = Papa.parse(csvText.trim(), { skipEmptyLines: true });
   const rows = parsed.data;
   if (!rows || rows.length < 1) {
     showError('CSVにデータ行が見つかりませんでした。');
     return false;
   }
-  const header = rows[0].map((h) => (h || '').trim());
+  const header = rows[0].map((h) => (h || '').replace(/[\uFEFF\u200B]/g, '').trim());
   const idx = {
     name: findColumnIndex(header, 'name'),
     date: findColumnIndex(header, 'date'),
@@ -569,9 +571,7 @@ async function autoLoad() {
   }
   statusText.textContent = '読み込み中…';
   try {
-    // キャッシュを使わず、毎回スプレッドシートの最新内容を取得する
-    const cacheBustUrl = CONFIG.CSV_URL + (CONFIG.CSV_URL.includes('?') ? '&' : '?') + '_=' + Date.now();
-    const res = await fetch(cacheBustUrl, { cache: 'no-store' });
+    const res = await fetch(CONFIG.CSV_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     ingestCSV(text);
