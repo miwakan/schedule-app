@@ -572,7 +572,9 @@ async function autoLoad() {
   }
   statusText.textContent = '読み込み中…';
   try {
-    const res = await fetch(CONFIG.CSV_URL);
+    // キャッシュを使わず、毎回スプレッドシートの最新内容を取得する
+    const cacheBustUrl = CONFIG.CSV_URL + (CONFIG.CSV_URL.includes('?') ? '&' : '?') + '_=' + Date.now();
+    const res = await fetch(cacheBustUrl, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     ingestCSV(text);
