@@ -181,10 +181,10 @@ function ingestCSV(csvText) {
     const values = {};
     names.forEach((name, idx) => {
       const raw = (r[nameStartIdx + idx] || '').toString().trim();
-      let v = 0;
+      let v;
       if (raw === '1' || raw.toLowerCase() === 'true' || raw === '○') v = 1;
-      else if (raw === '2') v = 2;
-      else if (raw === '×') v = 0;
+      else if (raw === '' || raw === '0' || raw === '×') v = 0;
+      else v = raw; // 0/1以外の文字はそのまま保持（グレー表示＋ツールチップにその文言を表示）
       values[name] = v;
     });
     slotData[date][time] = values;
@@ -219,15 +219,21 @@ function showError(msg) {
 
 // ---------------- Aggregation ----------------
 // Aggregates ONE person's 30-min sub-slots within [startTime, endTime) on a given date.
-// 値は 0=空き / 1=用事あり / 2=その他(未定など)
-// Returns 'red'(全コマ1) | 'green'(全コマ0) | 'other'(全コマ2) | 'yellow'(混在) | 'nodata'
+// 値は 0=空き / 1=用事あり / それ以外の文字列=その他(未定・メモなど、グレー表示)
+// Returns 'red'(全コマ1) | 'green'(全コマ0) | 'other'(全コマその他) | 'yellow'(混在) | 'nodata'
+function classify(v) {
+  if (v === 1) return 'busy';
+  if (v === 0) return 'free';
+  return 'other';
+}
+
 function aggregate(date, startTime, endTime, name) {
   const dayData = state.slotData[date];
   if (!dayData) return { status: 'nodata', total: 0 };
 
   const startMin = timeToMinutes(startTime);
   const endMin = timeToMinutes(endTime === '24:00' ? '24:00' : endTime);
-  const seen = new Set();
+  const seenClasses = new Set();
   let total = 0;
 
   for (const time in dayData) {
@@ -236,21 +242,21 @@ function aggregate(date, startTime, endTime, name) {
     const values = dayData[time];
     if (!(name in values)) continue;
     total++;
-    seen.add(values[name]);
+    seenClasses.add(classify(values[name]));
   }
 
   if (total === 0) return { status: 'nodata', total: 0 };
-  if (seen.size === 1) {
-    const v = [...seen][0];
-    const status = v === 1 ? 'red' : v === 2 ? 'other' : 'green';
+  if (seenClasses.size === 1) {
+    const c = [...seenClasses][0];
+    const status = c === 'busy' ? 'red' : c === 'free' ? 'green' : 'other';
     return { status, total };
   }
   return { status: 'yellow', total };
 }
 
-// そのブロック内で、ある人の予定(1)やその他(2)が入っている時間帯を連続区間としてまとめて返す
-// 同じ種類(1 or 2)が連続する場合のみ1つの区間にまとめる
-// 例: 13:00,13:30が1、14:30が2 → [{start:'13:00',end:'14:00',value:1}, {start:'14:30',end:'15:00',value:2}]
+// そのブロック内で、ある人の予定(1)やその他(文字列)が入っている時間帯を連続区間としてまとめて返す
+// 同じ値（1、または同じ文字列）が連続する場合のみ1つの区間にまとめる
+// 例: 13:00,13:30が1、14:30が"未定" → [{start:'13:00',end:'14:00',value:1}, {start:'14:30',end:'15:00',value:'未定'}]
 function getBusyRanges(date, startTime, endTime, name) {
   const dayData = state.slotData[date];
   if (!dayData) return [];
@@ -263,7 +269,7 @@ function getBusyRanges(date, startTime, endTime, name) {
     const tMin = timeToMinutes(time);
     if (tMin < startMin || tMin >= endMin) continue;
     const v = dayData[time][name];
-    if (v === 1 || v === 2) slots.push({ min: tMin, value: v });
+    if (v !== 0 && v !== undefined) slots.push({ min: tMin, value: v });
   }
   slots.sort((a, b) => a.min - b.min);
 
@@ -286,8 +292,8 @@ function formatRangeDetail(ranges, status) {
     return status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
   }
   return ranges
-    .map((r) => `${r.start}〜${r.end}${r.value === 2 ? '（その他）' : ''}`)
-    .join('、') + 'に予定あり';
+    .map((r) => (r.value === 1 ? `${r.start}〜${r.end}に予定あり` : `${r.start}〜${r.end}：${r.value}`))
+    .join('、');
 }
 
 // ---------------- Block definitions per granularity ----------------
