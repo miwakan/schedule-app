@@ -27,6 +27,9 @@ const CONFIG = {
 
   // スタッフ（色を変えて右端に寄せる）
   STAFF_NAMES: ['安達', '三輪'],
+
+  // 予定入力ページ(Google Apps Script)のURL。名前クリック・＋ボタンのリンク先に使う
+  INPUT_PAGE_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 };
 // -----------------------------------------------------------
 
@@ -367,8 +370,11 @@ function renderMainGrid() {
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
+  const inputBase = CONFIG.INPUT_PAGE_URL;
+  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}" target="_blank" rel="noopener">${n}</a>` : n;
   headRow.innerHTML = `<th class="corner">日時</th>` +
-    visibleNames.map((n) => `<th class="${isStaff(n) ? 'staff-col' : ''}">${n}</th>`).join('');
+    visibleNames.map((n) => `<th class="${isStaff(n) ? 'staff-col' : ''}">${nameLink(n)}</th>`).join('') +
+    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1" target="_blank" rel="noopener" title="新しいメンバーを追加">＋</a></th>` : '');
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
@@ -420,10 +426,11 @@ function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
       td.addEventListener('mouseleave', hideTooltip);
       tr.appendChild(td);
     });
+    if (CONFIG.INPUT_PAGE_URL) tr.appendChild(document.createElement('td'));
   } else {
     const spacer = document.createElement('td');
     spacer.className = 'spacer';
-    spacer.colSpan = visibleNames.length;
+    spacer.colSpan = visibleNames.length + (CONFIG.INPUT_PAGE_URL ? 1 : 0);
     tr.appendChild(spacer);
   }
 
@@ -451,6 +458,7 @@ function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
     td.addEventListener('mouseleave', hideTooltip);
     tr.appendChild(td);
   });
+  if (CONFIG.INPUT_PAGE_URL) tr.appendChild(document.createElement('td'));
   tbody.appendChild(tr);
 }
 

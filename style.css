@@ -297,7 +297,7 @@ body{
 
 /* ---------- Grid table ---------- */
 .grid-scroll{overflow-x:auto; padding-bottom:4px;}
-table{border-collapse:collapse; width:100%;}
+table{border-collapse:collapse; width:auto;}
 table thead th{
   font-family:var(--mono);
   font-size:11px;
@@ -315,7 +315,29 @@ table thead th.corner{
 }
 table thead th.staff-col{
   color:var(--gold);
-  border-left:2px solid var(--gold);
+}
+table thead th a{
+  color:inherit;
+  text-decoration:none;
+}
+table thead th a:hover{
+  text-decoration:underline;
+}
+table thead th.add-col a{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px; height:22px;
+  border-radius:50%;
+  border:1px solid var(--indigo);
+  color:var(--indigo);
+  font-weight:700;
+  font-size:14px;
+  text-decoration:none;
+}
+table thead th.add-col a:hover{
+  background:var(--indigo);
+  color:#fff;
 }
 table tbody th{
   font-family:var(--mono);
@@ -370,7 +392,7 @@ td.cell{
   padding:0;
   text-align:center;
 }
-td.cell.staff-col{border-left:2px solid var(--gold);}
+
 .cellbox{
   width:32px;height:26px;
   margin:4px auto;
