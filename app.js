@@ -8,7 +8,7 @@ const CONFIG = {
   // 公開スプレッドシートのCSV URL（ファイル→共有→ウェブに公開→形式:CSV で発行したもの）
   // 空のままだとサンプルデータが自動表示されます。
   // ★このシートは「name,date,start,end,status,note」の1件1行リスト形式です（旧・日付×時刻の巨大グリッド形式ではありません）
-  CSV_URL: 'https://docs.google.com/spreadsheets/d/1bzxod1otVLb_k1rvVnXZlk20oKsKuMQPqyXOlmjXOSI/export?format=csv&gid=1663163122',
+  CSV_URL: 'https://docs.google.com/spreadsheets/d/1bzxod1otVLb_k1rvVnXZlk20oKsKuMQPqyXOlmjXOSI/edit?gid=427203902#gid=427203902',
 
   // 日時が "8/1 9:00" のように年を省略した書式の場合に使う年
   DEFAULT_YEAR: 2026,
