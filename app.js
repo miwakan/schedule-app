@@ -26,6 +26,7 @@ const state = {
   granularity: 'day',
   customBlocks: [],          // {id, start, end, label}
   hiddenNames: new Set(),    // 非表示にしたメンバー名
+  collapsedDates: new Set(), // 折りたたんだ日付（'YYYY-MM-DD'）
 };
 
 const SAMPLE_CSV =
@@ -187,6 +188,7 @@ function ingestCSV(csvText) {
   state.names = names;
   state.dates = Array.from(dateSet).sort();
   state.slotData = slotData;
+  state.collapsedDates = new Set(state.dates); // デフォルトは全日折りたたみ（一覧性重視）
 
   statusDot.className = 'status-dot ok';
   statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${names.length}人`;
@@ -321,18 +323,63 @@ function renderMainGrid() {
   const tbody = document.createElement('tbody');
 
   state.dates.forEach((date) => {
-    const groupTr = document.createElement('tr');
-    groupTr.className = 'date-group';
-    groupTr.innerHTML = `<th>${formatDateLabel(date)}</th>` + `<td class="spacer" colspan="${visibleNames.length}"></td>`;
-    tbody.appendChild(groupTr);
+    const isCollapsed = state.collapsedDates.has(date);
+    appendDateGroupRow(tbody, date, visibleNames, isCollapsed);
 
-    presetBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, false));
-    state.customBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, true));
+    if (!isCollapsed) {
+      presetBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, false));
+      state.customBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, true));
+    }
   });
 
   table.innerHTML = '';
   table.appendChild(thead);
   table.appendChild(tbody);
+}
+
+function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
+  const tr = document.createElement('tr');
+  tr.className = 'date-group';
+
+  const th = document.createElement('th');
+  th.innerHTML = `<span class="chevron">${isCollapsed ? '▶' : '▼'}</span>${formatDateLabel(date)}`;
+  th.addEventListener('click', () => {
+    if (state.collapsedDates.has(date)) {
+      state.collapsedDates.delete(date);
+    } else {
+      state.collapsedDates.add(date);
+    }
+    renderMainGrid();
+  });
+  tr.appendChild(th);
+
+  if (isCollapsed) {
+    // 折りたたみ時は、その日全体（DISPLAY_START〜DISPLAY_END）のミニ状況を人ごとに表示
+    visibleNames.forEach((name) => {
+      const { status } = aggregate(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
+      const td = document.createElement('td');
+      td.className = 'cell';
+      const box = document.createElement('div');
+      box.className = `cellbox mini ${status}`;
+      td.appendChild(box);
+      td.addEventListener('mousemove', (e) => {
+        const ranges = getBusyRanges(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
+        const detail = ranges.length
+          ? ranges.map((r) => `${r.start}〜${r.end}`).join('、') + 'に予定あり'
+          : status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
+        showTooltip(e, `${name}：${detail}`);
+      });
+      td.addEventListener('mouseleave', hideTooltip);
+      tr.appendChild(td);
+    });
+  } else {
+    const spacer = document.createElement('td');
+    spacer.className = 'spacer';
+    spacer.colSpan = visibleNames.length;
+    tr.appendChild(spacer);
+  }
+
+  tbody.appendChild(tr);
 }
 
 function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
@@ -416,6 +463,16 @@ el('granularityControl').addEventListener('click', (e) => {
   document.querySelectorAll('.gbtn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
   state.granularity = btn.dataset.g;
+  renderMainGrid();
+});
+
+// ---------------- Expand / collapse all date groups ----------------
+el('expandAllBtn').addEventListener('click', () => {
+  state.collapsedDates.clear();
+  renderMainGrid();
+});
+el('collapseAllBtn').addEventListener('click', () => {
+  state.collapsedDates = new Set(state.dates);
   renderMainGrid();
 });
 

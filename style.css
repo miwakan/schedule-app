@@ -160,6 +160,19 @@ body{
 }
 .btn-plus:hover, .btn-plus.active{background:var(--indigo); color:#fff;}
 
+.expand-controls{display:flex; gap:6px;}
+.btn-text{
+  font-family:var(--mono);
+  font-size:11.5px;
+  color:var(--indigo-soft);
+  background:none;
+  border:none;
+  cursor:pointer;
+  text-decoration:underline;
+  padding:4px 2px;
+}
+.btn-text:hover{color:var(--indigo);}
+
 .add-block-bar{
   display:flex;
   align-items:flex-end;
@@ -317,7 +330,17 @@ tr.date-group th, tr.date-group td{
   text-align:left;
   position:sticky; left:0;
 }
+tr.date-group th{cursor:pointer; user-select:none;}
+tr.date-group th:hover{background:var(--indigo-soft);}
+tr.date-group .chevron{
+  display:inline-block;
+  width:12px;
+  margin-right:6px;
+  font-size:9px;
+  opacity:.8;
+}
 tr.date-group td.spacer{position:static; background:var(--indigo);}
+tr.date-group td.cell{background:var(--indigo); position:static;}
 
 tr.custom-row th{
   color:var(--gold);
@@ -344,6 +367,12 @@ td.cell{
 .cellbox.yellow{background:var(--yellow);}
 .cellbox.green{background:var(--green);}
 .cellbox.nodata{background:var(--nodata);}
+.cellbox.mini{
+  width:18px; height:18px;
+  margin:2px auto;
+  border-radius:4px;
+  border:1.5px solid rgba(255,255,255,.5);
+}
 
 /* ---------- Tooltip ---------- */
 .tooltip{
