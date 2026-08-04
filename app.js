@@ -354,7 +354,7 @@ function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
       const detail = ranges.length
         ? ranges.map((r) => `${r.start}〜${r.end}`).join('、') + 'に予定あり'
         : status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
-      showTooltip(e, `${formatDateLabel(date)} ${block.label}\n${name}：${detail}`);
+      showTooltip(e, `${name}：${detail}`);
     });
     td.addEventListener('mouseleave', hideTooltip);
     tr.appendChild(td);
