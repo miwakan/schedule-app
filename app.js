@@ -15,6 +15,13 @@ const CONFIG = {
   // グリッドに表示する時間帯（この範囲外のデータは表示されません）
   DISPLAY_START: '10:00',
   DISPLAY_END: '22:00',
+
+  // 列の表示順（五十音順など、ここに書いた並び順が優先されます）
+  // ここに書かれていない名前は末尾に追加されます
+  NAME_ORDER: ['浦上', '後藤', '篠﨑', 'のあ', '安達三輪'],
+
+  // スタッフ（色を変えて右端に寄せる）
+  STAFF_NAMES: ['安達三輪'],
 };
 // -----------------------------------------------------------
 
@@ -174,7 +181,11 @@ function ingestCSV(csvText) {
     const values = {};
     names.forEach((name, idx) => {
       const raw = (r[nameStartIdx + idx] || '').toString().trim();
-      values[name] = raw === '1' || raw.toLowerCase() === 'true' || raw === '○' || raw === '×' ? (raw === '×' ? 0 : 1) : 0;
+      let v = 0;
+      if (raw === '1' || raw.toLowerCase() === 'true' || raw === '○') v = 1;
+      else if (raw === '2') v = 2;
+      else if (raw === '×') v = 0;
+      values[name] = v;
     });
     slotData[date][time] = values;
     parsedCount++;
@@ -208,14 +219,16 @@ function showError(msg) {
 
 // ---------------- Aggregation ----------------
 // Aggregates ONE person's 30-min sub-slots within [startTime, endTime) on a given date.
-// Returns 'red' (全コマ埋まり) | 'yellow' (混在) | 'green' (全コマ空き) | 'nodata', plus busy/total counts
+// 値は 0=空き / 1=用事あり / 2=その他(未定など)
+// Returns 'red'(全コマ1) | 'green'(全コマ0) | 'other'(全コマ2) | 'yellow'(混在) | 'nodata'
 function aggregate(date, startTime, endTime, name) {
   const dayData = state.slotData[date];
-  if (!dayData) return { status: 'nodata', busy: 0, total: 0 };
+  if (!dayData) return { status: 'nodata', total: 0 };
 
   const startMin = timeToMinutes(startTime);
   const endMin = timeToMinutes(endTime === '24:00' ? '24:00' : endTime);
-  let busy = 0, total = 0;
+  const seen = new Set();
+  let total = 0;
 
   for (const time in dayData) {
     const tMin = timeToMinutes(time);
@@ -223,17 +236,21 @@ function aggregate(date, startTime, endTime, name) {
     const values = dayData[time];
     if (!(name in values)) continue;
     total++;
-    if (values[name] === 1) busy++;
+    seen.add(values[name]);
   }
 
-  if (total === 0) return { status: 'nodata', busy: 0, total: 0 };
-  if (busy === total) return { status: 'red', busy, total };
-  if (busy === 0) return { status: 'green', busy, total };
-  return { status: 'yellow', busy, total };
+  if (total === 0) return { status: 'nodata', total: 0 };
+  if (seen.size === 1) {
+    const v = [...seen][0];
+    const status = v === 1 ? 'red' : v === 2 ? 'other' : 'green';
+    return { status, total };
+  }
+  return { status: 'yellow', total };
 }
 
-// そのブロック内で、ある人の予定が入っている時間帯を連続区間としてまとめて返す
-// 例: 13:00,13:30,14:30 が埋まっていれば [{start:'13:00',end:'14:00'}, {start:'14:30',end:'15:00'}]
+// そのブロック内で、ある人の予定(1)やその他(2)が入っている時間帯を連続区間としてまとめて返す
+// 同じ種類(1 or 2)が連続する場合のみ1つの区間にまとめる
+// 例: 13:00,13:30が1、14:30が2 → [{start:'13:00',end:'14:00',value:1}, {start:'14:30',end:'15:00',value:2}]
 function getBusyRanges(date, startTime, endTime, name) {
   const dayData = state.slotData[date];
   if (!dayData) return [];
@@ -241,26 +258,36 @@ function getBusyRanges(date, startTime, endTime, name) {
   const startMin = timeToMinutes(startTime);
   const endMin = timeToMinutes(endTime === '24:00' ? '24:00' : endTime);
 
-  const busyMins = [];
+  const slots = [];
   for (const time in dayData) {
     const tMin = timeToMinutes(time);
     if (tMin < startMin || tMin >= endMin) continue;
-    const values = dayData[time];
-    if (values[name] === 1) busyMins.push(tMin);
+    const v = dayData[time][name];
+    if (v === 1 || v === 2) slots.push({ min: tMin, value: v });
   }
-  busyMins.sort((a, b) => a - b);
+  slots.sort((a, b) => a.min - b.min);
 
   const ranges = [];
-  busyMins.forEach((min) => {
+  slots.forEach(({ min, value }) => {
     const last = ranges[ranges.length - 1];
-    if (last && last.endMin === min) {
+    if (last && last.endMin === min && last.value === value) {
       last.endMin = min + 30;
     } else {
-      ranges.push({ startMin: min, endMin: min + 30 });
+      ranges.push({ startMin: min, endMin: min + 30, value });
     }
   });
 
-  return ranges.map((r) => ({ start: minutesToTime(r.startMin), end: minutesToTime(r.endMin) }));
+  return ranges.map((r) => ({ start: minutesToTime(r.startMin), end: minutesToTime(r.endMin), value: r.value }));
+}
+
+// ツールチップ用のテキストを組み立てる
+function formatRangeDetail(ranges, status) {
+  if (ranges.length === 0) {
+    return status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
+  }
+  return ranges
+    .map((r) => `${r.start}〜${r.end}${r.value === 2 ? '（その他）' : ''}`)
+    .join('、') + 'に予定あり';
 }
 
 // ---------------- Block definitions per granularity ----------------
@@ -310,14 +337,33 @@ function formatDateLabel(dateStr) {
   return `${m}/${d} (${dow})`;
 }
 
+// CONFIG.NAME_ORDER の並び順に整列。スタッフ(CONFIG.STAFF_NAMES)は常に末尾。
+// リストにない名前は、非スタッフなら通常メンバーの末尾に、スタッフならスタッフの末尾に追加。
+function getOrderedNames(names) {
+  const order = CONFIG.NAME_ORDER || [];
+  const staffSet = new Set(CONFIG.STAFF_NAMES || []);
+  const known = order.filter((n) => names.includes(n));
+  const unknown = names.filter((n) => !order.includes(n));
+  const knownNonStaff = known.filter((n) => !staffSet.has(n));
+  const knownStaff = known.filter((n) => staffSet.has(n));
+  const unknownNonStaff = unknown.filter((n) => !staffSet.has(n));
+  const unknownStaff = unknown.filter((n) => staffSet.has(n));
+  return [...knownNonStaff, ...unknownNonStaff, ...knownStaff, ...unknownStaff];
+}
+
+function isStaff(name) {
+  return (CONFIG.STAFF_NAMES || []).includes(name);
+}
+
 function renderMainGrid() {
   const presetBlocks = blocksForGranularity(state.granularity);
-  const visibleNames = state.names.filter((n) => !state.hiddenNames.has(n));
+  const visibleNames = getOrderedNames(state.names.filter((n) => !state.hiddenNames.has(n)));
   const table = mainGridTable;
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
-  headRow.innerHTML = `<th class="corner">日時</th>` + visibleNames.map((n) => `<th>${n}</th>`).join('');
+  headRow.innerHTML = `<th class="corner">日時</th>` +
+    visibleNames.map((n) => `<th class="${isStaff(n) ? 'staff-col' : ''}">${n}</th>`).join('');
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
@@ -358,16 +404,13 @@ function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
     visibleNames.forEach((name) => {
       const { status } = aggregate(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
       const td = document.createElement('td');
-      td.className = 'cell';
+      td.className = 'cell' + (isStaff(name) ? ' staff-col' : '');
       const box = document.createElement('div');
       box.className = `cellbox mini ${status}`;
       td.appendChild(box);
       td.addEventListener('mousemove', (e) => {
         const ranges = getBusyRanges(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
-        const detail = ranges.length
-          ? ranges.map((r) => `${r.start}〜${r.end}`).join('、') + 'に予定あり'
-          : status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
-        showTooltip(e, `${name}：${detail}`);
+        showTooltip(e, `${name}：${formatRangeDetail(ranges, status)}`);
       });
       td.addEventListener('mouseleave', hideTooltip);
       tr.appendChild(td);
@@ -392,16 +435,13 @@ function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
   visibleNames.forEach((name) => {
     const { status } = aggregate(date, block.start, block.end, name);
     const td = document.createElement('td');
-    td.className = 'cell';
+    td.className = 'cell' + (isStaff(name) ? ' staff-col' : '');
     const box = document.createElement('div');
     box.className = `cellbox ${status}`;
     td.appendChild(box);
     td.addEventListener('mousemove', (e) => {
       const ranges = getBusyRanges(date, block.start, block.end, name);
-      const detail = ranges.length
-        ? ranges.map((r) => `${r.start}〜${r.end}`).join('、') + 'に予定あり'
-        : status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
-      showTooltip(e, `${name}：${detail}`);
+      showTooltip(e, `${name}：${formatRangeDetail(ranges, status)}`);
     });
     td.addEventListener('mouseleave', hideTooltip);
     tr.appendChild(td);
@@ -426,11 +466,11 @@ function renderCustomChips() {
 
 function renderMemberChips() {
   memberChipRow.innerHTML = '';
-  state.names.forEach((name) => {
+  getOrderedNames(state.names).forEach((name) => {
     const chip = document.createElement('button');
     const isHidden = state.hiddenNames.has(name);
     chip.type = 'button';
-    chip.className = 'member-chip' + (isHidden ? ' off' : '');
+    chip.className = 'member-chip' + (isHidden ? ' off' : '') + (isStaff(name) ? ' staff' : '');
     chip.textContent = name;
     chip.title = isHidden ? 'クリックで表示' : 'クリックで非表示';
     chip.addEventListener('click', () => {

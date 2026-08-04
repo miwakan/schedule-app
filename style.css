@@ -11,6 +11,7 @@
   --yellow:#E0A929;
   --green:#3E8E5A;
   --nodata:#D8D4C8;
+  --other:#8A8377;
   --radius:10px;
   --mono:'JetBrains Mono', ui-monospace, monospace;
   --sans:'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif;
@@ -266,6 +267,15 @@ body{
   opacity:.6;
   text-decoration:line-through;
 }
+.member-chip.staff{
+  background:var(--gold);
+  border-color:var(--gold);
+}
+.member-chip.staff.off{
+  background:var(--paper);
+  color:var(--gold);
+  border-color:var(--gold);
+}
 
 /* ---------- Legend ---------- */
 .legend{
@@ -282,6 +292,7 @@ body{
 .swatch-red{background:var(--red);}
 .swatch-yellow{background:var(--yellow);}
 .swatch-green{background:var(--green);}
+.swatch-other{background:var(--other);}
 .swatch-nodata{background:var(--nodata);}
 
 /* ---------- Grid table ---------- */
@@ -301,6 +312,10 @@ table thead th{
 table thead th.corner{
   position:sticky; left:0; z-index:2;
   text-align:left;
+}
+table thead th.staff-col{
+  color:var(--gold);
+  border-left:2px solid var(--gold);
 }
 table tbody th{
   font-family:var(--mono);
@@ -355,6 +370,7 @@ td.cell{
   padding:0;
   text-align:center;
 }
+td.cell.staff-col{border-left:2px solid var(--gold);}
 .cellbox{
   width:32px;height:26px;
   margin:4px auto;
@@ -367,6 +383,7 @@ td.cell{
 .cellbox.yellow{background:var(--yellow);}
 .cellbox.green{background:var(--green);}
 .cellbox.nodata{background:var(--nodata);}
+.cellbox.other{background:var(--other);}
 .cellbox.mini{
   width:18px; height:18px;
   margin:2px auto;
