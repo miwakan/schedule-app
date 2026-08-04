@@ -24,6 +24,8 @@ const state = {
   // slotData[date][time] = { name: 0|1, ... }  time は 'HH:MM' (30分刻み)
   slotData: {},
   granularity: 'day',
+  customBlocks: [],          // {id, start, end, label}
+  hiddenNames: new Set(),    // 非表示にしたメンバー名
 };
 
 const SAMPLE_CSV =
@@ -61,6 +63,13 @@ const statusText = el('statusText');
 const gridPanel = el('gridPanel');
 const mainGridTable = el('mainGrid');
 const tooltip = el('tooltip');
+const addBlockToggle = el('addBlockToggle');
+const addBlockBar = el('addBlockBar');
+const customChipRow = el('customChipRow');
+const customStartSel = el('customStart');
+const customEndSel = el('customEnd');
+const customLabelInput = el('customLabel');
+const memberChipRow = el('memberChipRow');
 
 // ---------------- Helpers ----------------
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -182,6 +191,8 @@ function ingestCSV(csvText) {
   statusDot.className = 'status-dot ok';
   statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${names.length}人`;
   gridPanel.hidden = false;
+  buildCustomTimeOptions();
+  renderMemberChips();
   renderMainGrid();
   return true;
 }
@@ -217,6 +228,37 @@ function aggregate(date, startTime, endTime, name) {
   if (busy === total) return { status: 'red', busy, total };
   if (busy === 0) return { status: 'green', busy, total };
   return { status: 'yellow', busy, total };
+}
+
+// そのブロック内で、ある人の予定が入っている時間帯を連続区間としてまとめて返す
+// 例: 13:00,13:30,14:30 が埋まっていれば [{start:'13:00',end:'14:00'}, {start:'14:30',end:'15:00'}]
+function getBusyRanges(date, startTime, endTime, name) {
+  const dayData = state.slotData[date];
+  if (!dayData) return [];
+
+  const startMin = timeToMinutes(startTime);
+  const endMin = timeToMinutes(endTime === '24:00' ? '24:00' : endTime);
+
+  const busyMins = [];
+  for (const time in dayData) {
+    const tMin = timeToMinutes(time);
+    if (tMin < startMin || tMin >= endMin) continue;
+    const values = dayData[time];
+    if (values[name] === 1) busyMins.push(tMin);
+  }
+  busyMins.sort((a, b) => a - b);
+
+  const ranges = [];
+  busyMins.forEach((min) => {
+    const last = ranges[ranges.length - 1];
+    if (last && last.endMin === min) {
+      last.endMin = min + 30;
+    } else {
+      ranges.push({ startMin: min, endMin: min + 30 });
+    }
+  });
+
+  return ranges.map((r) => ({ start: minutesToTime(r.startMin), end: minutesToTime(r.endMin) }));
 }
 
 // ---------------- Block definitions per granularity ----------------
@@ -268,11 +310,12 @@ function formatDateLabel(dateStr) {
 
 function renderMainGrid() {
   const presetBlocks = blocksForGranularity(state.granularity);
+  const visibleNames = state.names.filter((n) => !state.hiddenNames.has(n));
   const table = mainGridTable;
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
-  headRow.innerHTML = `<th class="corner">日時</th>` + state.names.map((n) => `<th>${n}</th>`).join('');
+  headRow.innerHTML = `<th class="corner">日時</th>` + visibleNames.map((n) => `<th>${n}</th>`).join('');
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
@@ -280,10 +323,11 @@ function renderMainGrid() {
   state.dates.forEach((date) => {
     const groupTr = document.createElement('tr');
     groupTr.className = 'date-group';
-    groupTr.innerHTML = `<th>${formatDateLabel(date)}</th>` + `<td class="spacer" colspan="${state.names.length}"></td>`;
+    groupTr.innerHTML = `<th>${formatDateLabel(date)}</th>` + `<td class="spacer" colspan="${visibleNames.length}"></td>`;
     tbody.appendChild(groupTr);
 
-    presetBlocks.forEach((block) => appendBlockRow(tbody, date, block));
+    presetBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, false));
+    state.customBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, true));
   });
 
   table.innerHTML = '';
@@ -291,26 +335,68 @@ function renderMainGrid() {
   table.appendChild(tbody);
 }
 
-function appendBlockRow(tbody, date, block) {
+function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
   const tr = document.createElement('tr');
+  if (isCustom) tr.className = 'custom-row';
   const th = document.createElement('th');
   th.innerHTML = `<span class="tick"></span>${block.label}`;
   tr.appendChild(th);
 
-  state.names.forEach((name) => {
-    const { status, busy, total } = aggregate(date, block.start, block.end, name);
+  visibleNames.forEach((name) => {
+    const { status } = aggregate(date, block.start, block.end, name);
     const td = document.createElement('td');
     td.className = 'cell';
     const box = document.createElement('div');
     box.className = `cellbox ${status}`;
     td.appendChild(box);
-    td.addEventListener('mousemove', (e) =>
-      showTooltip(e, `${formatDateLabel(date)} ${block.label}\n${name}：${busy}/${total} コマ埋まり`)
-    );
+    td.addEventListener('mousemove', (e) => {
+      const ranges = getBusyRanges(date, block.start, block.end, name);
+      const detail = ranges.length
+        ? ranges.map((r) => `${r.start}〜${r.end}`).join('、') + 'に予定あり'
+        : status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
+      showTooltip(e, `${formatDateLabel(date)} ${block.label}\n${name}：${detail}`);
+    });
     td.addEventListener('mouseleave', hideTooltip);
     tr.appendChild(td);
   });
   tbody.appendChild(tr);
+}
+
+function renderCustomChips() {
+  customChipRow.innerHTML = '';
+  state.customBlocks.forEach((block) => {
+    const chip = document.createElement('span');
+    chip.className = 'custom-chip';
+    chip.innerHTML = `${block.label}<span class="chip-remove" title="削除">×</span>`;
+    chip.querySelector('.chip-remove').onclick = () => {
+      state.customBlocks = state.customBlocks.filter((b) => b.id !== block.id);
+      renderCustomChips();
+      renderMainGrid();
+    };
+    customChipRow.appendChild(chip);
+  });
+}
+
+function renderMemberChips() {
+  memberChipRow.innerHTML = '';
+  state.names.forEach((name) => {
+    const chip = document.createElement('button');
+    const isHidden = state.hiddenNames.has(name);
+    chip.type = 'button';
+    chip.className = 'member-chip' + (isHidden ? ' off' : '');
+    chip.textContent = name;
+    chip.title = isHidden ? 'クリックで表示' : 'クリックで非表示';
+    chip.addEventListener('click', () => {
+      if (state.hiddenNames.has(name)) {
+        state.hiddenNames.delete(name);
+      } else {
+        state.hiddenNames.add(name);
+      }
+      renderMemberChips();
+      renderMainGrid();
+    });
+    memberChipRow.appendChild(chip);
+  });
 }
 
 function showTooltip(e, text) {
@@ -330,6 +416,46 @@ el('granularityControl').addEventListener('click', (e) => {
   document.querySelectorAll('.gbtn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
   state.granularity = btn.dataset.g;
+  renderMainGrid();
+});
+
+// ---------------- Custom time-block controls (＋ボタン) ----------------
+function buildCustomTimeOptions() {
+  customStartSel.innerHTML = '';
+  customEndSel.innerHTML = '';
+  const dispStart = timeToMinutes(CONFIG.DISPLAY_START);
+  const dispEnd = timeToMinutes(CONFIG.DISPLAY_END);
+  for (let min = dispStart; min <= dispEnd; min += 30) {
+    const label = minutesToTime(min);
+    const optS = document.createElement('option');
+    optS.value = label; optS.textContent = label;
+    customStartSel.appendChild(optS);
+    const optE = document.createElement('option');
+    optE.value = label; optE.textContent = label;
+    customEndSel.appendChild(optE);
+  }
+  customStartSel.value = CONFIG.DISPLAY_START;
+  customEndSel.value = CONFIG.DISPLAY_END;
+}
+
+addBlockToggle.addEventListener('click', () => {
+  addBlockBar.hidden = !addBlockBar.hidden;
+  addBlockToggle.classList.toggle('active', !addBlockBar.hidden);
+});
+
+el('addBlockBtn').addEventListener('click', () => {
+  const start = customStartSel.value;
+  const end = customEndSel.value;
+  if (timeToMinutes(end) <= timeToMinutes(start)) {
+    alert('終了時刻は開始時刻より後にしてください。');
+    return;
+  }
+  const label = (customLabelInput.value || '').trim() || `${start}〜${end}`;
+  state.customBlocks.push({ id: Date.now() + Math.random(), start, end, label });
+  customLabelInput.value = '';
+  addBlockBar.hidden = true;
+  addBlockToggle.classList.remove('active');
+  renderCustomChips();
   renderMainGrid();
 });
 

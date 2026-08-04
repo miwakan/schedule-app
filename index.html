@@ -32,12 +32,29 @@
   <section class="panel grid-panel" id="gridPanel" hidden>
     <div class="panel-head">
       <h2>空き状況グリッド</h2>
-      <div class="granularity" id="granularityControl">
-        <button data-g="day" class="gbtn active">1日</button>
-        <button data-g="ampm" class="gbtn">午前午後</button>
-        <button data-g="hour" class="gbtn">1時間ごと</button>
-        <button data-g="half" class="gbtn">30分ごと</button>
+      <div class="head-controls">
+        <div class="granularity" id="granularityControl">
+          <button data-g="day" class="gbtn active">1日</button>
+          <button data-g="ampm" class="gbtn">午前午後</button>
+          <button data-g="hour" class="gbtn">1時間ごと</button>
+          <button data-g="half" class="gbtn">30分ごと</button>
+        </div>
+        <button id="addBlockToggle" class="btn-plus" title="カスタム時間帯を追加">＋</button>
       </div>
+    </div>
+
+    <div class="add-block-bar" id="addBlockBar" hidden>
+      <label>開始 <select id="customStart"></select></label>
+      <span class="arrow">→</span>
+      <label>終了 <select id="customEnd"></select></label>
+      <label class="custom-label-field">ラベル（任意） <input type="text" id="customLabel" placeholder="例：ランチMTG候補"></label>
+      <button id="addBlockBtn" class="btn btn-primary">全日付に追加</button>
+    </div>
+    <div class="custom-chip-row" id="customChipRow"></div>
+
+    <div class="member-panel">
+      <span class="member-panel-label">表示するメンバー：</span>
+      <div class="member-chip-row" id="memberChipRow"></div>
     </div>
 
     <div class="legend">
