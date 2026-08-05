@@ -26,10 +26,17 @@ const CONFIG = {
   NAME_ORDER: ['浦上', '後藤', '篠﨑', 'のあ', '安達', '三輪'],
 
   // スタッフ（色を変えて右端に寄せる）
+  // ※スプレッドシートのrole列に値がある人はそちらが優先されます（下のROLE_STAFF_VALUESで判定）。
+  //   role列が空の人（古いデータなど）だけ、ここに名前を書いておくと同じ扱いになります。
   STAFF_NAMES: ['安達', '三輪'],
 
   // 未定（役者とスタッフの間に配置し、別の色で表示）
+  // ※STAFF_NAMESと同様、role列が空の人向けの手動フォールバックです。
   TBD_NAMES: [],
+
+  // スプレッドシートのrole列の値が、これらに一致すればスタッフ/未定として自動判定する
+  ROLE_STAFF_VALUES: ['スタッフ'],
+  ROLE_TBD_VALUES: ['未定'],
 
   // 予定入力ページ(Google Apps Script)のURL。名前クリック・＋ボタンのリンク先に使う
   INPUT_PAGE_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
@@ -41,6 +48,7 @@ const state = {
   dates: [],                 // 'YYYY-MM-DD' の配列（昇順、CONFIG.DATE_START〜DATE_ENDから生成）
   // eventsByPersonDate[name][date] = [{start:'HH:MM', end:'HH:MM', status:'busy'|'other', note:''}, ...]
   eventsByPersonDate: {},
+  rolesByName: {},           // CSVのrole列から読み取った 名前→役割('役者'/'未定'/'スタッフ'等)
   granularity: 'day',
   customBlocks: [],          // {id, start, end, label}
   hiddenNames: new Set(),    // 非表示にしたメンバー名
@@ -138,6 +146,7 @@ const HEADER_ALIASES = {
   end: ['end', '終了'],
   status: ['status', '状態', 'ステータス'],
   note: ['note', '備考', 'メモ'],
+  role: ['role', '役割'],
 };
 
 function findColumnIndex(header, key) {
@@ -168,6 +177,7 @@ function ingestCSV(csvText) {
     end: findColumnIndex(header, 'end'),
     status: findColumnIndex(header, 'status'),
     note: findColumnIndex(header, 'note'),
+    role: findColumnIndex(header, 'role'),
   };
   if (idx.name === -1 || idx.date === -1 || idx.start === -1 || idx.end === -1 || idx.status === -1) {
     showError('CSVの列見出しを認識できませんでした。"name,date,start,end,status,note" 形式の列見出しが必要です。');
@@ -176,6 +186,7 @@ function ingestCSV(csvText) {
 
   const eventsByPersonDate = {};
   const nameSet = new Set();
+  const rolesByName = {};
   let parsedCount = 0;
 
   for (let i = 1; i < rows.length; i++) {
@@ -188,6 +199,7 @@ function ingestCSV(csvText) {
     let end = parseTimeFlexible(r[idx.end] || '');
     const statusRaw = (r[idx.status] || '').trim().toLowerCase();
     const note = idx.note !== -1 ? (r[idx.note] || '').trim() : '';
+    const role = idx.role !== -1 ? (r[idx.role] || '').trim() : '';
 
     if (!name || !date) continue;
     if (!start) start = '00:00';
@@ -197,6 +209,7 @@ function ingestCSV(csvText) {
     const status = statusRaw === 'busy' || statusRaw === '1' ? 'busy' : 'other';
 
     nameSet.add(name);
+    if (role && !rolesByName[name]) rolesByName[name] = role;
     if (!eventsByPersonDate[name]) eventsByPersonDate[name] = {};
     if (!eventsByPersonDate[name][date]) eventsByPersonDate[name][date] = [];
     eventsByPersonDate[name][date].push({ start, end, status, note });
@@ -215,6 +228,7 @@ function ingestCSV(csvText) {
 
   state.dates = generateDateRange(CONFIG.DATE_START, CONFIG.DATE_END);
   state.eventsByPersonDate = eventsByPersonDate;
+  state.rolesByName = rolesByName;
   state.collapsedDates = new Set(state.dates); // デフォルトは全日折りたたみ（一覧性重視）
 
   statusDot.className = 'status-dot ok';
@@ -362,16 +376,21 @@ function getOrderedNames(names) {
 }
 
 function groupOf_(name) {
-  if ((CONFIG.STAFF_NAMES || []).includes(name)) return 2;
-  if ((CONFIG.TBD_NAMES || []).includes(name)) return 1;
+  if (isStaff(name)) return 2;
+  if (isTbd(name)) return 1;
   return 0;
 }
 
+// スプレッドシートの role 列に値があればそちらを優先し、無ければ CONFIG の手動リストにフォールバックする
 function isStaff(name) {
+  const role = state.rolesByName[name];
+  if (role) return (CONFIG.ROLE_STAFF_VALUES || []).includes(role);
   return (CONFIG.STAFF_NAMES || []).includes(name);
 }
 
 function isTbd(name) {
+  const role = state.rolesByName[name];
+  if (role) return (CONFIG.ROLE_TBD_VALUES || []).includes(role);
   return (CONFIG.TBD_NAMES || []).includes(name);
 }
 
@@ -387,10 +406,6 @@ function nameChipClass(name) {
   if (isStaff(name)) return 'staff';
   if (isTbd(name)) return 'tbd';
   return '';
-}
-
-function isTbd(name) {
-  return (CONFIG.TBD_NAMES || []).includes(name);
 }
 
 function renderMainGrid() {
