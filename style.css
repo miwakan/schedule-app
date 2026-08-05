@@ -7,6 +7,7 @@
   --indigo:#26375A;
   --indigo-soft:#3C517D;
   --gold:#B8892B;
+  --tbd:#707A85;
   --red:#D6483F;
   --yellow:#E0A929;
   --green:#3E8E5A;
@@ -276,6 +277,15 @@ body{
   color:var(--gold);
   border-color:var(--gold);
 }
+.member-chip.tbd{
+  background:var(--tbd);
+  border-color:var(--tbd);
+}
+.member-chip.tbd.off{
+  background:var(--paper);
+  color:var(--tbd);
+  border-color:var(--tbd);
+}
 
 /* ---------- Legend ---------- */
 .legend{
@@ -315,6 +325,9 @@ table thead th.corner{
 }
 table thead th.staff-col{
   color:var(--gold);
+}
+table thead th.tbd-col{
+  color:var(--tbd);
 }
 table thead th a{
   color:inherit;

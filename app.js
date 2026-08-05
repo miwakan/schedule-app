@@ -28,6 +28,9 @@ const CONFIG = {
   // スタッフ（色を変えて右端に寄せる）
   STAFF_NAMES: ['安達', '三輪'],
 
+  // 未定（役者とスタッフの間に配置し、別の色で表示）
+  TBD_NAMES: [],
+
   // 予定入力ページ(Google Apps Script)のURL。名前クリック・＋ボタンのリンク先に使う
   INPUT_PAGE_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 };
@@ -345,22 +348,49 @@ function formatDateLabel(dateStr) {
   return `${m}/${d} (${dow})`;
 }
 
-// CONFIG.NAME_ORDER の並び順に整列。スタッフ(CONFIG.STAFF_NAMES)は常に末尾。
-// リストにない名前は、非スタッフなら通常メンバーの末尾に、スタッフならスタッフの末尾に追加。
+// CONFIG.NAME_ORDER の並び順に整列。グループ順は 通常 → 未定(TBD_NAMES) → スタッフ(STAFF_NAMES)。
+// リストにない名前は、それぞれのグループの末尾に追加。
 function getOrderedNames(names) {
   const order = CONFIG.NAME_ORDER || [];
-  const staffSet = new Set(CONFIG.STAFF_NAMES || []);
   const known = order.filter((n) => names.includes(n));
   const unknown = names.filter((n) => !order.includes(n));
-  const knownNonStaff = known.filter((n) => !staffSet.has(n));
-  const knownStaff = known.filter((n) => staffSet.has(n));
-  const unknownNonStaff = unknown.filter((n) => !staffSet.has(n));
-  const unknownStaff = unknown.filter((n) => staffSet.has(n));
-  return [...knownNonStaff, ...unknownNonStaff, ...knownStaff, ...unknownStaff];
+  const all = [...known, ...unknown];
+  return all
+    .map((n, i) => ({ n, i, g: groupOf_(n) }))
+    .sort((a, b) => a.g - b.g || a.i - b.i)
+    .map((x) => x.n);
+}
+
+function groupOf_(name) {
+  if ((CONFIG.STAFF_NAMES || []).includes(name)) return 2;
+  if ((CONFIG.TBD_NAMES || []).includes(name)) return 1;
+  return 0;
 }
 
 function isStaff(name) {
   return (CONFIG.STAFF_NAMES || []).includes(name);
+}
+
+function isTbd(name) {
+  return (CONFIG.TBD_NAMES || []).includes(name);
+}
+
+// 名前ごとの見た目クラス名(グリッドのth/td用)
+function nameColClass(name) {
+  if (isStaff(name)) return 'staff-col';
+  if (isTbd(name)) return 'tbd-col';
+  return '';
+}
+
+// 名前ごとの見た目クラス名(メンバー表示チップ用)
+function nameChipClass(name) {
+  if (isStaff(name)) return 'staff';
+  if (isTbd(name)) return 'tbd';
+  return '';
+}
+
+function isTbd(name) {
+  return (CONFIG.TBD_NAMES || []).includes(name);
 }
 
 function renderMainGrid() {
@@ -373,7 +403,7 @@ function renderMainGrid() {
   const inputBase = CONFIG.INPUT_PAGE_URL;
   const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}">${n}</a>` : n;
   headRow.innerHTML = `<th class="corner">日時</th>` +
-    visibleNames.map((n) => `<th class="${isStaff(n) ? 'staff-col' : ''}">${nameLink(n)}</th>`).join('') +
+    visibleNames.map((n) => `<th class="${nameColClass(n)}">${nameLink(n)}</th>`).join('') +
     (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1" title="新しいメンバーを追加">＋</a></th>` : '');
   thead.appendChild(headRow);
 
@@ -415,7 +445,7 @@ function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
     visibleNames.forEach((name) => {
       const { status } = aggregate(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
       const td = document.createElement('td');
-      td.className = 'cell' + (isStaff(name) ? ' staff-col' : '');
+      td.className = 'cell' + (nameColClass(name) ? ' ' + nameColClass(name) : '');
       const box = document.createElement('div');
       box.className = `cellbox mini ${status}`;
       td.appendChild(box);
@@ -447,7 +477,7 @@ function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
   visibleNames.forEach((name) => {
     const { status } = aggregate(date, block.start, block.end, name);
     const td = document.createElement('td');
-    td.className = 'cell' + (isStaff(name) ? ' staff-col' : '');
+    td.className = 'cell' + (nameColClass(name) ? ' ' + nameColClass(name) : '');
     const box = document.createElement('div');
     box.className = `cellbox ${status}`;
     td.appendChild(box);
@@ -483,7 +513,7 @@ function renderMemberChips() {
     const chip = document.createElement('button');
     const isHidden = state.hiddenNames.has(name);
     chip.type = 'button';
-    chip.className = 'member-chip' + (isHidden ? ' off' : '') + (isStaff(name) ? ' staff' : '');
+    chip.className = 'member-chip' + (isHidden ? ' off' : '') + (nameChipClass(name) ? ' ' + nameChipClass(name) : '');
     chip.textContent = name;
     chip.title = isHidden ? 'クリックで表示' : 'クリックで非表示';
     chip.addEventListener('click', () => {
