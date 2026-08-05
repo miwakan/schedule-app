@@ -371,10 +371,10 @@ function renderMainGrid() {
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
   const inputBase = CONFIG.INPUT_PAGE_URL;
-  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}" target="_blank" rel="noopener">${n}</a>` : n;
+  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}">${n}</a>` : n;
   headRow.innerHTML = `<th class="corner">日時</th>` +
     visibleNames.map((n) => `<th class="${isStaff(n) ? 'staff-col' : ''}">${nameLink(n)}</th>`).join('') +
-    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1" target="_blank" rel="noopener" title="新しいメンバーを追加">＋</a></th>` : '');
+    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1" title="新しいメンバーを追加">＋</a></th>` : '');
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
