@@ -306,7 +306,14 @@ body{
 .swatch-nodata{background:var(--nodata);}
 
 /* ---------- Grid table ---------- */
-.grid-scroll{overflow-x:auto; overflow-y:visible; padding-bottom:4px;}
+.grid-scroll{
+  overflow-x:auto;
+  overflow-y:auto;
+  max-height:65vh;
+  padding-bottom:4px;
+  border:1px solid var(--line);
+  border-radius:8px;
+}
 table{border-collapse:collapse; width:auto;}
 table thead th{
   font-family:var(--mono);
