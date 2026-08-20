@@ -3,10 +3,8 @@
 // ============================================================
 
 const CONFIG = {
-  GAS_URL:
-    'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 };
-
 
 const state = {
   eventName: '',
@@ -23,59 +21,24 @@ const state = {
   displayEnd: '22:00',
 };
 
+const el = (id) => document.getElementById(id);
 
-const el =
-  (id) =>
-    document.getElementById(id);
+const loadError = el('loadError');
+const statusDot = el('statusDot');
+const statusText = el('statusText');
+const gridPanel = el('gridPanel');
+const mainGridTable = el('mainGrid');
+const tooltip = el('tooltip');
+const addBlockToggle = el('addBlockToggle');
+const addBlockBar = el('addBlockBar');
+const customChipRow = el('customChipRow');
+const customStartSel = el('customStart');
+const customEndSel = el('customEnd');
+const customLabelInput = el('customLabel');
+const memberChipRow = el('memberChipRow');
 
-
-const loadError =
-  el('loadError');
-
-const statusDot =
-  el('statusDot');
-
-const statusText =
-  el('statusText');
-
-const gridPanel =
-  el('gridPanel');
-
-const mainGridTable =
-  el('mainGrid');
-
-const tooltip =
-  el('tooltip');
-
-const addBlockToggle =
-  el('addBlockToggle');
-
-const addBlockBar =
-  el('addBlockBar');
-
-const customChipRow =
-  el('customChipRow');
-
-const customStartSel =
-  el('customStart');
-
-const customEndSel =
-  el('customEnd');
-
-const customLabelInput =
-  el('customLabel');
-
-const memberChipRow =
-  el('memberChipRow');
-
-
-const pad2 =
-  (n) =>
-    String(n)
-      .padStart(
-        2,
-        '0'
-      );
+const pad2 = (n) =>
+  String(n).padStart(2, '0');
 
 
 function timeToMinutes(t) {
@@ -93,8 +56,7 @@ function timeToMinutes(t) {
 
 function minutesToTime(min) {
   if (
-    min >=
-    24 * 60
+    min >= 24 * 60
   ) {
     return '24:00';
   }
@@ -116,6 +78,165 @@ function endToMinutes(t) {
     t === '24:00'
       ? 24 * 60
       : timeToMinutes(t)
+  );
+}
+
+
+function parseTimeFlexible(value) {
+  const s =
+    String(
+      value ?? ''
+    ).trim();
+
+  if (!s) {
+    return null;
+  }
+
+  if (
+    s === '24:00'
+  ) {
+    return '24:00';
+  }
+
+  const m =
+    s.match(
+      /^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$/
+    );
+
+  if (!m) {
+    return null;
+  }
+
+  const h =
+    Number(m[1]);
+
+  const min =
+    Number(m[2]);
+
+  if (
+    h < 0 ||
+    h > 23 ||
+    min < 0 ||
+    min > 59
+  ) {
+    return null;
+  }
+
+  return (
+    `${pad2(h)}:${pad2(min)}`
+  );
+}
+
+
+function parseDateFlexible(
+  value,
+  eventStart,
+  eventEnd
+) {
+  const s =
+    String(
+      value ?? ''
+    ).trim();
+
+  if (!s) {
+    return null;
+  }
+
+  let m =
+    s.match(
+      /^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?$/
+    );
+
+  if (m) {
+    return (
+      `${m[1]}-` +
+      `${pad2(
+        Number(m[2])
+      )}-` +
+      `${pad2(
+        Number(m[3])
+      )}`
+    );
+  }
+
+  m =
+    s.match(
+      /^(\d{1,2})[\/\-月](\d{1,2})日?$/
+    );
+
+  if (m) {
+    const startYear =
+      Number(
+        String(
+          eventStart
+        ).slice(
+          0,
+          4
+        )
+      );
+
+    const candidate =
+      `${startYear}-` +
+      `${pad2(
+        Number(m[1])
+      )}-` +
+      `${pad2(
+        Number(m[2])
+      )}`;
+
+    if (
+      !eventStart ||
+      !eventEnd ||
+      (
+        candidate >= eventStart &&
+        candidate <= eventEnd
+      )
+    ) {
+      return candidate;
+    }
+
+    const endYear =
+      Number(
+        String(
+          eventEnd
+        ).slice(
+          0,
+          4
+        )
+      );
+
+    const candidate2 =
+      `${endYear}-` +
+      `${pad2(
+        Number(m[1])
+      )}-` +
+      `${pad2(
+        Number(m[2])
+      )}`;
+
+    if (
+      candidate2 >= eventStart &&
+      candidate2 <= eventEnd
+    ) {
+      return candidate2;
+    }
+
+    return candidate;
+  }
+
+  return null;
+}
+
+
+function normalizeDisplayTime(
+  value,
+  fallback
+) {
+  return (
+    parseTimeFlexible(
+      value
+    ) ||
+    fallback
   );
 }
 
@@ -385,20 +506,24 @@ function ingestCSV(csvText) {
       ).trim();
 
     const date =
-      String(
-        row[idx.date] || ''
-      ).trim();
+      parseDateFlexible(
+        row[idx.date] || '',
+        state.dates[0] || '',
+        state.dates[
+          state.dates.length - 1
+        ] || ''
+      );
 
     const start =
-      String(
+      parseTimeFlexible(
         row[idx.start] || ''
-      ).trim() ||
+      ) ||
       '00:00';
 
     const end =
-      String(
+      parseTimeFlexible(
         row[idx.end] || ''
-      ).trim() ||
+      ) ||
       '24:00';
 
     const statusRaw =
@@ -538,7 +663,9 @@ function ingestCSV(csvText) {
   state.eventsByPersonDate =
     eventsByPersonDate;
 
-  finishLoad(count);
+  finishLoad(
+    count
+  );
 }
 
 
@@ -601,11 +728,20 @@ function aggregate(
       endTime
     );
 
+
+  // 予定がない場合は「空き」。
+  // nodataにはしない。
   if (
+    !Number.isFinite(
+      bStart
+    ) ||
+    !Number.isFinite(
+      bEnd
+    ) ||
     bEnd <= bStart
   ) {
     return {
-      status: 'nodata'
+      status: 'green'
     };
   }
 
@@ -613,10 +749,12 @@ function aggregate(
   const events =
     (
       (
-        state.eventsByPersonDate[
-          name
-        ] || {}
-      )[date] || []
+        (
+          state.eventsByPersonDate[
+            name
+          ] || {}
+        )[date]
+      ) || []
     )
       .map(
         (ev) => ({
@@ -642,9 +780,23 @@ function aggregate(
       )
       .filter(
         (ev) =>
-          ev.end >
-          ev.start
+          Number.isFinite(
+            ev.start
+          ) &&
+          Number.isFinite(
+            ev.end
+          ) &&
+          ev.end > ev.start
       );
+
+
+  if (
+    events.length === 0
+  ) {
+    return {
+      status: 'green'
+    };
+  }
 
 
   const boundaries =
@@ -652,6 +804,7 @@ function aggregate(
       bStart,
       bEnd
     ]);
+
 
   events.forEach(
     (ev) => {
@@ -872,7 +1025,7 @@ function formatRangeDetail(
 
 
 // ------------------------------------------------------------
-// 表示時間ブロック
+// 時間表示
 // ------------------------------------------------------------
 
 function blocksForGranularity(g) {
@@ -912,6 +1065,7 @@ function blocksForGranularity(g) {
     const blocks =
       [];
 
+
     if (
       dispStart < noon
     ) {
@@ -932,6 +1086,7 @@ function blocksForGranularity(g) {
       });
     }
 
+
     if (
       dispEnd > noon
     ) {
@@ -951,6 +1106,7 @@ function blocksForGranularity(g) {
           state.displayEnd
       });
     }
+
 
     return blocks;
   }
@@ -997,11 +1153,14 @@ function blocksForGranularity(g) {
     });
   }
 
+
   return blocks;
 }
 
 
-function formatDateLabel(dateStr) {
+function formatDateLabel(
+  dateStr
+) {
   const parts =
     dateStr
       .split('-')
@@ -1040,7 +1199,7 @@ function roleGroup(name) {
       name
     ] || '';
 
-  // ロールなしは金
+  // ロールなし = 金
   if (!role) {
     return 'staff';
   }
@@ -1051,7 +1210,6 @@ function roleGroup(name) {
         r.name === role
     );
 
-  // 定義不明でも金
   return (
     def
       ? def.group
@@ -1074,12 +1232,18 @@ function groupRank(name) {
 }
 
 
-function getOrderedNames(names) {
+function getOrderedNames(
+  names
+) {
   return names
     .map(
       (name, i) => ({
-        name,
-        i,
+        name:
+          name,
+
+        i:
+          i,
+
         rank:
           groupRank(name)
       })
@@ -1098,7 +1262,9 @@ function getOrderedNames(names) {
 }
 
 
-function nameColClass(name) {
+function nameColClass(
+  name
+) {
   const group =
     roleGroup(name);
 
@@ -1112,7 +1278,9 @@ function nameColClass(name) {
 }
 
 
-function nameChipClass(name) {
+function nameChipClass(
+  name
+) {
   const group =
     roleGroup(name);
 
@@ -1199,13 +1367,15 @@ function renderMainGrid() {
       .map(
         (name) =>
           `<th class="${nameColClass(name)}"><a href="${inputUrl({
-            name: name
+            name:
+              name
           })}">${name}</a></th>`
       )
       .join('') +
 
     `<th class="add-col"><a href="${inputUrl({
-      new: '1'
+      new:
+        '1'
     })}" title="新しいメンバーを追加">＋</a></th>`;
 
 
@@ -1319,7 +1489,9 @@ function appendDateGroupRow(
     }
   );
 
-  tr.appendChild(th);
+  tr.appendChild(
+    th
+  );
 
 
   if (
@@ -1340,7 +1512,7 @@ function appendDateGroupRow(
             'td'
           );
 
-        const columnClass =
+        const colClass =
           nameColClass(
             name
           );
@@ -1348,9 +1520,9 @@ function appendDateGroupRow(
         td.className =
           'cell' +
           (
-            columnClass
+            colClass
               ? ' ' +
-                columnClass
+                colClass
               : ''
           );
 
@@ -1362,7 +1534,9 @@ function appendDateGroupRow(
         box.className =
           `cellbox mini ${result.status}`;
 
-        td.appendChild(box);
+        td.appendChild(
+          box
+        );
 
         td.addEventListener(
           'mousemove',
@@ -1385,11 +1559,12 @@ function appendDateGroupRow(
           hideTooltip
         );
 
-        tr.appendChild(td);
+        tr.appendChild(
+          td
+        );
       }
     );
 
-    // ＋列用
     tr.appendChild(
       document.createElement(
         'td'
@@ -1413,6 +1588,7 @@ function appendDateGroupRow(
       spacer
     );
   }
+
 
   tbody.appendChild(
     tr
@@ -1439,6 +1615,7 @@ function appendBlockRow(
       'custom-row';
   }
 
+
   const th =
     document.createElement(
       'th'
@@ -1447,7 +1624,9 @@ function appendBlockRow(
   th.innerHTML =
     `<span class="tick"></span>${block.label}`;
 
-  tr.appendChild(th);
+  tr.appendChild(
+    th
+  );
 
 
   visibleNames.forEach(
@@ -1465,7 +1644,7 @@ function appendBlockRow(
           'td'
         );
 
-      const columnClass =
+      const colClass =
         nameColClass(
           name
         );
@@ -1473,9 +1652,9 @@ function appendBlockRow(
       td.className =
         'cell' +
         (
-          columnClass
+          colClass
             ? ' ' +
-              columnClass
+              colClass
             : ''
         );
 
@@ -1487,7 +1666,9 @@ function appendBlockRow(
       box.className =
         `cellbox ${result.status}`;
 
-      td.appendChild(box);
+      td.appendChild(
+        box
+      );
 
       td.addEventListener(
         'mousemove',
@@ -1510,9 +1691,12 @@ function appendBlockRow(
         hideTooltip
       );
 
-      tr.appendChild(td);
+      tr.appendChild(
+        td
+      );
     }
   );
+
 
   tr.appendChild(
     document.createElement(
@@ -1912,7 +2096,7 @@ async function autoLoad() {
     );
 
 
-    // GAS側やブラウザ側に空のCSVがキャッシュされないよう毎回URLを変える
+    // 常に最新データを取得
     const cacheBust =
       Date.now()
         .toString();
@@ -1986,11 +2170,38 @@ async function autoLoad() {
     state.eventName =
       meta.eventName;
 
+
     state.displayStart =
-      meta.displayStart;
+      normalizeDisplayTime(
+        meta.displayStart,
+        '10:00'
+      );
+
 
     state.displayEnd =
-      meta.displayEnd;
+      normalizeDisplayTime(
+        meta.displayEnd,
+        '22:00'
+      );
+
+
+    // メタ情報の時刻が壊れていても
+    // 全セルnodataにしない
+    if (
+      endToMinutes(
+        state.displayEnd
+      ) <=
+      timeToMinutes(
+        state.displayStart
+      )
+    ) {
+      state.displayStart =
+        '10:00';
+
+      state.displayEnd =
+        '22:00';
+    }
+
 
     state.roleDefs =
       Array.isArray(
@@ -1998,6 +2209,7 @@ async function autoLoad() {
       )
         ? meta.roles
         : [];
+
 
     state.dates =
       generateDateRange(
@@ -2011,12 +2223,14 @@ async function autoLoad() {
     ).textContent =
       meta.eventName;
 
+
     document.title =
       `${meta.eventName} | 空き時間ビューア`;
 
 
     const csvText =
       await csvRes.text();
+
 
     ingestCSV(
       csvText
