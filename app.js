@@ -1,77 +1,26 @@
 // ============================================================
-// 空き時間ビューア — app.js
+// 空き時間ビューア — GitHub Pages frontend
 // ============================================================
-//
-// ▼設定（編集者が直接書き換える場所）▼
-// -----------------------------------------------------------
+
 const CONFIG = {
-  // 公開スプレッドシートのCSV URL（ファイル→共有→ウェブに公開→形式:CSV で発行したもの）
-  // 空のままだとサンプルデータが自動表示されます。
-  // ★このシートは「name,date,start,end,status,note」の1件1行リスト形式です（旧・日付×時刻の巨大グリッド形式ではありません）
-  CSV_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
-
-  // 日時が "8/1 9:00" のように年を省略した書式の場合に使う年
-  DEFAULT_YEAR: 2026,
-
-  // グリッドに表示する日付の範囲（この範囲の日付が縦軸に並びます）
-  // ★URLに ?event=イベント名 が付いている場合は、この値はサーバー側のイベント情報で自動的に上書きされます
-  DATE_START: '2026-08-05',
-  DATE_END: '2026-08-31',
-
-  // グリッドに表示する時間帯（この範囲外の時刻は表示されません）
-  // ★こちらも ?event= がある場合は自動的に上書きされます
-  DISPLAY_START: '10:00',
-  DISPLAY_END: '22:00',
-
-  // 列の表示順（五十音順など、ここに書いた並び順が優先されます）
-  // ここに書かれていない名前は末尾に追加されます
-  NAME_ORDER: ['浦上', '後藤', '篠﨑', 'のあ', '安達', '三輪'],
-
-  // スタッフ（色を変えて右端に寄せる）
-  // ※スプレッドシートのrole列に値がある人はそちらが優先されます（下のROLE_STAFF_VALUESで判定）。
-  //   role列が空の人（古いデータなど）だけ、ここに名前を書いておくと同じ扱いになります。
-  STAFF_NAMES: ['安達', '三輪'],
-
-  // 未定（役者とスタッフの間に配置し、別の色で表示）
-  // ※STAFF_NAMESと同様、role列が空の人向けの手動フォールバックです。
-  TBD_NAMES: [],
-
-  // スプレッドシートのrole列の値が、これらに一致すればスタッフ/未定として自動判定する
-  ROLE_STAFF_VALUES: ['スタッフ'],
-  ROLE_TBD_VALUES: ['未定'],
-
-  // 予定入力ページ(Google Apps Script)のURL。名前クリック・＋ボタンのリンク先に使う
-  INPUT_PAGE_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 };
-// -----------------------------------------------------------
 
 const state = {
-  names: [],                 // 人物名の配列
-  dates: [],                 // 'YYYY-MM-DD' の配列（昇順、CONFIG.DATE_START〜DATE_ENDから生成）
-  // eventsByPersonDate[name][date] = [{start:'HH:MM', end:'HH:MM', status:'busy'|'other', note:''}, ...]
+  eventName: '',
+  dates: [],
+  names: [],
+  rolesByName: {},
+  roleDefs: [],
   eventsByPersonDate: {},
-  rolesByName: {},           // CSVのrole列から読み取った 名前→役割('役者'/'未定'/'スタッフ'等)
   granularity: 'day',
-  customBlocks: [],          // {id, start, end, label}
-  hiddenNames: new Set(),    // 非表示にしたメンバー名
-  collapsedDates: new Set(), // 折りたたんだ日付（'YYYY-MM-DD'）
-  eventName: '',             // URLの ?event= から読み取ったイベント名（無ければ空文字＝従来の固定シート）
+  customBlocks: [],
+  hiddenNames: new Set(),
+  collapsedDates: new Set(),
+  displayStart: '10:00',
+  displayEnd: '22:00',
 };
 
-// 新形式（1件1行リスト）のサンプルデータ
-const SAMPLE_CSV =
-`name,date,start,end,status,note
-田中,2026-08-01,10:00,11:30,busy,
-田中,2026-08-01,13:00,14:00,busy,
-鈴木,2026-08-01,11:00,14:00,busy,
-鈴木,2026-08-02,13:00,14:00,busy,
-佐藤,2026-08-01,13:00,15:15,busy,
-佐藤,2026-08-02,14:00,17:00,other,未定
-山本,2026-08-01,13:00,14:00,busy,
-山本,2026-08-02,10:00,11:30,busy,
-山本,2026-08-03,10:00,12:00,busy,`;
-
-// ---------------- DOM refs ----------------
 const el = (id) => document.getElementById(id);
 const loadError = el('loadError');
 const statusDot = el('statusDot');
@@ -87,39 +36,20 @@ const customEndSel = el('customEnd');
 const customLabelInput = el('customLabel');
 const memberChipRow = el('memberChipRow');
 
-// ---------------- Helpers ----------------
 const pad2 = (n) => String(n).padStart(2, '0');
 
 function timeToMinutes(t) {
-  const [h, m] = t.split(':').map(Number);
+  const [h, m] = String(t).split(':').map(Number);
   return h * 60 + m;
 }
+
 function minutesToTime(min) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${pad2(h)}:${pad2(m)}`;
-}
-function endToMinutes(t) {
-  return t === '24:00' ? 24 * 60 : timeToMinutes(t);
+  if (min >= 24 * 60) return '24:00';
+  return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
 }
 
-// "YYYY-MM-DD" 柔軟パース（年省略形式にも対応）
-function parseDateFlexible(str, defaultYear) {
-  str = (str || '').trim();
-  let m = str.match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?$/);
-  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
-  m = str.match(/^(\d{1,2})[\/\-月](\d{1,2})日?$/);
-  if (m) return `${defaultYear}-${pad2(m[1])}-${pad2(m[2])}`;
-  return null;
-}
-// "HH:MM" 柔軟パース（"9:5" のような1桁分も許容）。空文字はnull。
-function parseTimeFlexible(str) {
-  str = (str || '').trim();
-  if (str === '') return null;
-  if (str === '24:00') return '24:00';
-  const m = str.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!m) return null;
-  return `${pad2(m[1])}:${pad2(m[2])}`;
+function endToMinutes(t) {
+  return t === '24:00' ? 24 * 60 : timeToMinutes(t);
 }
 
 function addDaysToDateStr(dateStr, days) {
@@ -140,118 +70,93 @@ function generateDateRange(startStr, endStr) {
   return dates;
 }
 
-// ---------------- イベント対応（?event=）のためのURLヘルパー ----------------
 function getEventNameFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('event') || '';
+  return new URLSearchParams(window.location.search).get('event') || '';
 }
 
-// CONFIG.CSV_URL からクエリ部分を除いた、Apps ScriptのベースURLを得る
-function baseScriptUrl() {
-  return CONFIG.CSV_URL.split('?')[0];
-}
-
-// ---------------- CSV -> state ----------------
-// 期待するヘッダー（日本語/英語どちらでも可）: name/名前, date/日付, start/開始, end/終了, status/状態, note/備考
-const HEADER_ALIASES = {
-  name: ['name', '名前', '氏名'],
-  date: ['date', '日付'],
-  start: ['start', '開始'],
-  end: ['end', '終了'],
-  status: ['status', '状態', 'ステータス'],
-  note: ['note', '備考', 'メモ'],
-  role: ['role', '役割'],
-};
-
-function findColumnIndex(header, key) {
-  const aliases = HEADER_ALIASES[key];
-  for (let i = 0; i < header.length; i++) {
-    const h = header[i].toLowerCase();
-    if (aliases.some((a) => h === a.toLowerCase())) return i;
-  }
-  return -1;
+function findColumnIndex(header, names) {
+  const normalized = header.map((h) => String(h || '').trim().toLowerCase());
+  return normalized.findIndex((h) => names.some((name) => h === name.toLowerCase()));
 }
 
 function ingestCSV(csvText) {
-  loadError.hidden = true;
-  const defaultYear = CONFIG.DEFAULT_YEAR;
-  // 先頭のBOM（見えない文字）を除去してからパースする
-  csvText = csvText.replace(/^\uFEFF/, '');
-  const parsed = Papa.parse(csvText.trim(), { skipEmptyLines: true });
-  const rows = parsed.data;
-  if (!rows || rows.length < 1) {
-    showError('CSVにデータ行が見つかりませんでした。');
-    return false;
+  const parsed = Papa.parse(String(csvText || '').replace(/^\uFEFF/, '').trim(), { skipEmptyLines: true });
+  const rows = parsed.data || [];
+
+  // 新規イベントはヘッダーだけでも正常。グリッドはメタ情報から描画する。
+  if (rows.length === 0) {
+    state.names = [];
+    state.rolesByName = {};
+    state.eventsByPersonDate = {};
+    finishLoad(0);
+    return;
   }
-  const header = rows[0].map((h) => (h || '').replace(/[\uFEFF\u200B]/g, '').trim());
+
+  const header = rows[0].map((h) => String(h || '').replace(/[\uFEFF\u200B]/g, '').trim());
   const idx = {
-    name: findColumnIndex(header, 'name'),
-    date: findColumnIndex(header, 'date'),
-    start: findColumnIndex(header, 'start'),
-    end: findColumnIndex(header, 'end'),
-    status: findColumnIndex(header, 'status'),
-    note: findColumnIndex(header, 'note'),
-    role: findColumnIndex(header, 'role'),
+    name: findColumnIndex(header, ['name', '名前', '氏名']),
+    date: findColumnIndex(header, ['date', '日付']),
+    start: findColumnIndex(header, ['start', '開始']),
+    end: findColumnIndex(header, ['end', '終了']),
+    status: findColumnIndex(header, ['status', '状態', 'ステータス']),
+    note: findColumnIndex(header, ['note', '備考', 'メモ']),
+    role: findColumnIndex(header, ['role', '役割']),
   };
-  if (idx.name === -1 || idx.date === -1 || idx.start === -1 || idx.end === -1 || idx.status === -1) {
-    showError('CSVの列見出しを認識できませんでした。"name,date,start,end,status,note" 形式の列見出しが必要です。');
-    return false;
+
+  if ([idx.name, idx.date, idx.start, idx.end, idx.status].some((i) => i === -1)) {
+    throw new Error('CSVの列見出しが不正です。');
   }
 
   const eventsByPersonDate = {};
-  const nameSet = new Set();
   const rolesByName = {};
-  let parsedCount = 0;
+  const names = [];
+  const seen = new Set();
+  let count = 0;
 
   for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || r.every((c) => (c || '').trim() === '')) continue;
+    const row = rows[i];
+    const name = String(row[idx.name] || '').trim();
+    const date = String(row[idx.date] || '').trim();
+    const start = String(row[idx.start] || '').trim() || '00:00';
+    const end = String(row[idx.end] || '').trim() || '24:00';
+    const statusRaw = String(row[idx.status] || '').trim().toLowerCase();
+    const note = idx.note >= 0 ? String(row[idx.note] || '').trim() : '';
+    const role = idx.role >= 0 ? String(row[idx.role] || '').trim() : '';
 
-    const name = (r[idx.name] || '').trim();
-    const date = parseDateFlexible(r[idx.date] || '', defaultYear);
-    let start = parseTimeFlexible(r[idx.start] || '');
-    let end = parseTimeFlexible(r[idx.end] || '');
-    const statusRaw = (r[idx.status] || '').trim().toLowerCase();
-    const note = idx.note !== -1 ? (r[idx.note] || '').trim() : '';
-    const role = idx.role !== -1 ? (r[idx.role] || '').trim() : '';
+    if (!name || !date || endToMinutes(end) <= timeToMinutes(start)) continue;
 
-    if (!name || !date) continue;
-    if (!start) start = '00:00';
-    if (!end) end = '24:00';
-    if (endToMinutes(end) <= timeToMinutes(start)) continue; // 不正な範囲はスキップ
-
-    const status = statusRaw === 'busy' || statusRaw === '1' ? 'busy' : 'other';
-
-    nameSet.add(name);
+    if (!seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
     if (role && !rolesByName[name]) rolesByName[name] = role;
     if (!eventsByPersonDate[name]) eventsByPersonDate[name] = {};
     if (!eventsByPersonDate[name][date]) eventsByPersonDate[name][date] = [];
-    eventsByPersonDate[name][date].push({ start, end, status, note });
-    parsedCount++;
+
+    eventsByPersonDate[name][date].push({
+      start,
+      end,
+      status: statusRaw === 'busy' || statusRaw === '1' ? 'busy' : 'other',
+      note,
+    });
+    count++;
   }
 
-  if (parsedCount === 0) {
-    showError('予定を1件も解析できませんでした。列見出しやデータ形式をご確認ください。');
-    return false;
-  }
-
-  // 名前一覧: NAME_ORDER + CSVに登場した未知の名前
-  const namesFromOrder = (CONFIG.NAME_ORDER || []).filter((n) => nameSet.has(n));
-  const extraNames = [...nameSet].filter((n) => !namesFromOrder.includes(n));
-  state.names = [...namesFromOrder, ...extraNames];
-
-  state.dates = generateDateRange(CONFIG.DATE_START, CONFIG.DATE_END);
-  state.eventsByPersonDate = eventsByPersonDate;
+  state.names = names;
   state.rolesByName = rolesByName;
-  state.collapsedDates = new Set(state.dates); // デフォルトは全日折りたたみ（一覧性重視）
+  state.eventsByPersonDate = eventsByPersonDate;
+  finishLoad(count);
+}
 
+function finishLoad(count) {
+  state.collapsedDates = new Set(state.dates);
   statusDot.className = 'status-dot ok';
-  statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${state.names.length}人（予定${parsedCount}件）`;
+  statusText.textContent = `読み込み完了：${state.dates.length}日分 × ${state.names.length}人（予定${count}件）`;
+  loadError.hidden = true;
   gridPanel.hidden = false;
   buildCustomTimeOptions();
   renderMemberChips();
   renderMainGrid();
-  return true;
 }
 
 function showError(msg) {
@@ -261,202 +166,162 @@ function showError(msg) {
   statusText.textContent = '読み込みエラー';
 }
 
-// ---------------- Aggregation（連続時間ベース） ----------------
-// 指定した人・日付・時間帯 [startTime, endTime) の中身を判定する。
-// Returns 'red'(全て予定あり) | 'green'(全て空き) | 'other'(全てその他) | 'yellow'(混在)
-function getEventsInRange(date, startTime, endTime, name) {
-  const events = (state.eventsByPersonDate[name] && state.eventsByPersonDate[name][date]) || [];
+// 重複予定を二重加算せず、区間ごとに busy / other / free を判定する。
+function aggregate(date, startTime, endTime, name) {
   const bStart = timeToMinutes(startTime);
   const bEnd = endToMinutes(endTime);
-  const clipped = [];
+  if (bEnd <= bStart) return { status: 'nodata' };
+
+  const events = ((state.eventsByPersonDate[name] || {})[date] || [])
+    .map((ev) => ({
+      start: Math.max(bStart, timeToMinutes(ev.start)),
+      end: Math.min(bEnd, endToMinutes(ev.end)),
+      status: ev.status,
+    }))
+    .filter((ev) => ev.end > ev.start);
+
+  const boundaries = new Set([bStart, bEnd]);
   events.forEach((ev) => {
-    const evStart = Math.max(bStart, timeToMinutes(ev.start));
-    const evEnd = Math.min(bEnd, endToMinutes(ev.end));
-    if (evEnd > evStart) clipped.push({ startMin: evStart, endMin: evEnd, status: ev.status, note: ev.note });
+    boundaries.add(ev.start);
+    boundaries.add(ev.end);
   });
-  clipped.sort((a, b) => a.startMin - b.startMin);
-  return { clipped, bStart, bEnd };
-}
-
-function aggregate(date, startTime, endTime, name) {
-  const { clipped, bStart, bEnd } = getEventsInRange(date, startTime, endTime, name);
-  const blockDur = bEnd - bStart;
-  if (blockDur <= 0) return { status: 'nodata' };
-
-  let coveredDur = 0;
+  const points = [...boundaries].sort((a, b) => a - b);
   const types = new Set();
-  clipped.forEach((c) => {
-    coveredDur += c.endMin - c.startMin;
-    types.add(c.status === 'busy' ? 'busy' : 'other');
-  });
-  if (coveredDur < blockDur) types.add('free');
 
-  if (types.size === 0) return { status: 'nodata' };
+  for (let i = 0; i < points.length - 1; i++) {
+    const s = points[i];
+    const e = points[i + 1];
+    if (e <= s) continue;
+    const covering = events.filter((ev) => ev.start < e && ev.end > s);
+    if (covering.length === 0) {
+      types.add('free');
+    } else {
+      covering.forEach((ev) => types.add(ev.status === 'busy' ? 'busy' : 'other'));
+    }
+  }
+
   if (types.size === 1) {
-    const t = [...types][0];
-    const status = t === 'busy' ? 'red' : t === 'free' ? 'green' : 'other';
-    return { status };
+    const type = [...types][0];
+    return { status: type === 'busy' ? 'red' : type === 'other' ? 'other' : 'green' };
   }
   return { status: 'yellow' };
 }
 
-// そのブロック内で、ある人の予定(busy)やその他(other)が入っている時間帯を返す
-// 例: [{start:'13:00',end:'14:00',value:1}, {start:'14:30',end:'15:15',value:'未定'}]
 function getBusyRanges(date, startTime, endTime, name) {
-  const { clipped } = getEventsInRange(date, startTime, endTime, name);
-  return clipped.map((c) => ({
-    start: minutesToTime(c.startMin),
-    end: minutesToTime(c.endMin),
-    value: c.status === 'busy' ? 1 : (c.note || 'その他'),
-  }));
+  const bStart = timeToMinutes(startTime);
+  const bEnd = endToMinutes(endTime);
+  return (((state.eventsByPersonDate[name] || {})[date] || []))
+    .map((ev) => ({
+      startMin: Math.max(bStart, timeToMinutes(ev.start)),
+      endMin: Math.min(bEnd, endToMinutes(ev.end)),
+      status: ev.status,
+      note: ev.note,
+    }))
+    .filter((ev) => ev.endMin > ev.startMin)
+    .sort((a, b) => a.startMin - b.startMin)
+    .map((ev) => ({
+      start: minutesToTime(ev.startMin),
+      end: minutesToTime(ev.endMin),
+      value: ev.status === 'busy' ? 1 : (ev.note || 'その他'),
+    }));
 }
 
-// ツールチップ用のテキストを組み立てる
-function formatRangeDetail(ranges, status) {
-  if (ranges.length === 0) {
-    return status === 'nodata' ? 'データなし' : '予定なし（全て空き）';
-  }
+function formatRangeDetail(ranges) {
+  if (ranges.length === 0) return '予定なし（全て空き）';
   return ranges
     .map((r) => (r.value === 1 ? `${r.start}〜${r.end}に予定あり` : `${r.start}〜${r.end}：${r.value}`))
     .join('、');
 }
 
-// ---------------- Block definitions per granularity ----------------
-// すべて CONFIG.DISPLAY_START 〜 CONFIG.DISPLAY_END の範囲にクリップされる
 function blocksForGranularity(g) {
-  const dispStart = timeToMinutes(CONFIG.DISPLAY_START);
-  const dispEnd = timeToMinutes(CONFIG.DISPLAY_END);
+  const dispStart = timeToMinutes(state.displayStart);
+  const dispEnd = endToMinutes(state.displayEnd);
 
-  switch (g) {
-    case 'day':
-      return [{ label: '終日', start: CONFIG.DISPLAY_START, end: CONFIG.DISPLAY_END }];
-    case 'ampm': {
-      const noon = 12 * 60;
-      const blocks = [];
-      if (dispStart < noon) {
-        blocks.push({ label: '午前', start: CONFIG.DISPLAY_START, end: minutesToTime(Math.min(noon, dispEnd)) });
-      }
-      if (dispEnd > noon) {
-        blocks.push({ label: '午後', start: minutesToTime(Math.max(noon, dispStart)), end: CONFIG.DISPLAY_END });
-      }
-      return blocks;
-    }
-    case 'hour': {
-      const arr = [];
-      for (let min = dispStart; min < dispEnd; min += 60) {
-        const end = Math.min(min + 60, dispEnd);
-        arr.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
-      }
-      return arr;
-    }
-    case 'half': {
-      const arr = [];
-      for (let min = dispStart; min < dispEnd; min += 30) {
-        const end = Math.min(min + 30, dispEnd);
-        arr.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
-      }
-      return arr;
-    }
-    case 'quarter': {
-      const arr = [];
-      for (let min = dispStart; min < dispEnd; min += 15) {
-        const end = Math.min(min + 15, dispEnd);
-        arr.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
-      }
-      return arr;
-    }
+  if (g === 'day') return [{ label: '終日', start: state.displayStart, end: state.displayEnd }];
+
+  if (g === 'ampm') {
+    const noon = 12 * 60;
+    const blocks = [];
+    if (dispStart < noon) blocks.push({ label: '午前', start: state.displayStart, end: minutesToTime(Math.min(noon, dispEnd)) });
+    if (dispEnd > noon) blocks.push({ label: '午後', start: minutesToTime(Math.max(noon, dispStart)), end: state.displayEnd });
+    return blocks;
   }
+
+  const step = g === 'hour' ? 60 : g === 'half' ? 30 : 15;
+  const blocks = [];
+  for (let min = dispStart; min < dispEnd; min += step) {
+    const end = Math.min(min + step, dispEnd);
+    blocks.push({ label: minutesToTime(min), start: minutesToTime(min), end: minutesToTime(end) });
+  }
+  return blocks;
 }
 
-// ---------------- Rendering ----------------
-// 縦軸 = 選んだ粒度での「日付×時間帯」の行、横軸 = 人の名前の列
 function formatDateLabel(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dow = ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, d).getDay()];
   return `${m}/${d} (${dow})`;
 }
 
-// CONFIG.NAME_ORDER の並び順に整列。グループ順は 通常 → 未定(TBD_NAMES) → スタッフ(STAFF_NAMES)。
-// リストにない名前は、それぞれのグループの末尾に追加。
+function roleGroup(name) {
+  const role = state.rolesByName[name] || '';
+  const def = state.roleDefs.find((r) => r.name === role);
+  return def ? def.group : 'normal';
+}
+
+function groupRank(name) {
+  const group = roleGroup(name);
+  return group === 'staff' ? 2 : group === 'tbd' ? 1 : 0;
+}
+
 function getOrderedNames(names) {
-  const order = CONFIG.NAME_ORDER || [];
-  const known = order.filter((n) => names.includes(n));
-  const unknown = names.filter((n) => !order.includes(n));
-  const all = [...known, ...unknown];
-  return all
-    .map((n, i) => ({ n, i, g: groupOf_(n) }))
-    .sort((a, b) => a.g - b.g || a.i - b.i)
-    .map((x) => x.n);
+  return names
+    .map((name, i) => ({ name, i, rank: groupRank(name) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.name);
 }
 
-function groupOf_(name) {
-  if (isStaff(name)) return 2;
-  if (isTbd(name)) return 1;
-  return 0;
-}
-
-// スプレッドシートの role 列に値があればそちらを優先し、無ければ CONFIG の手動リストにフォールバックする
-function isStaff(name) {
-  const role = state.rolesByName[name];
-  if (role) return (CONFIG.ROLE_STAFF_VALUES || []).includes(role);
-  return (CONFIG.STAFF_NAMES || []).includes(name);
-}
-
-function isTbd(name) {
-  const role = state.rolesByName[name];
-  if (role) return (CONFIG.ROLE_TBD_VALUES || []).includes(role);
-  return (CONFIG.TBD_NAMES || []).includes(name);
-}
-
-// 名前ごとの見た目クラス名(グリッドのth/td用)
 function nameColClass(name) {
-  if (isStaff(name)) return 'staff-col';
-  if (isTbd(name)) return 'tbd-col';
-  return '';
+  const group = roleGroup(name);
+  return group === 'staff' ? 'staff-col' : group === 'tbd' ? 'tbd-col' : '';
 }
 
-// 名前ごとの見た目クラス名(メンバー表示チップ用)
 function nameChipClass(name) {
-  if (isStaff(name)) return 'staff';
-  if (isTbd(name)) return 'tbd';
-  return '';
+  const group = roleGroup(name);
+  return group === 'staff' ? 'staff' : group === 'tbd' ? 'tbd' : '';
 }
 
-// 入力ページへのリンクに付けるクエリ文字列（イベント対応時は &event=... を追加）
-function eventQueryString() {
-  return state.eventName ? `&event=${encodeURIComponent(state.eventName)}` : '';
+function inputUrl(params) {
+  const url = new URL(CONFIG.GAS_URL);
+  url.searchParams.set('page', 'input');
+  url.searchParams.set('event', state.eventName);
+  Object.entries(params || {}).forEach(([k, v]) => url.searchParams.set(k, v));
+  return url.toString();
 }
 
 function renderMainGrid() {
   const presetBlocks = blocksForGranularity(state.granularity);
   const visibleNames = getOrderedNames(state.names.filter((n) => !state.hiddenNames.has(n)));
-  const table = mainGridTable;
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
-  const inputBase = CONFIG.INPUT_PAGE_URL;
-  const eventQ = eventQueryString();
-  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}${eventQ}">${n}</a>` : n;
   headRow.innerHTML = `<th class="corner">日時</th>` +
-    visibleNames.map((n) => `<th class="${nameColClass(n)}">${nameLink(n)}</th>`).join('') +
-    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1${eventQ}" title="新しいメンバーを追加">＋</a></th>` : '');
+    visibleNames.map((name) => `<th class="${nameColClass(name)}"><a href="${inputUrl({ name })}">${name}</a></th>`).join('') +
+    `<th class="add-col"><a href="${inputUrl({ new: '1' })}" title="新しいメンバーを追加">＋</a></th>`;
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
-
   state.dates.forEach((date) => {
     const isCollapsed = state.collapsedDates.has(date);
     appendDateGroupRow(tbody, date, visibleNames, isCollapsed);
-
     if (!isCollapsed) {
       presetBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, false));
       state.customBlocks.forEach((block) => appendBlockRow(tbody, date, block, visibleNames, true));
     }
   });
 
-  table.innerHTML = '';
-  table.appendChild(thead);
-  table.appendChild(tbody);
+  mainGridTable.innerHTML = '';
+  mainGridTable.appendChild(thead);
+  mainGridTable.appendChild(tbody);
 }
 
 function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
@@ -466,36 +331,29 @@ function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
   const th = document.createElement('th');
   th.innerHTML = `<span class="chevron">${isCollapsed ? '▶' : '▼'}</span>${formatDateLabel(date)}`;
   th.addEventListener('click', () => {
-    if (state.collapsedDates.has(date)) {
-      state.collapsedDates.delete(date);
-    } else {
-      state.collapsedDates.add(date);
-    }
+    if (state.collapsedDates.has(date)) state.collapsedDates.delete(date);
+    else state.collapsedDates.add(date);
     renderMainGrid();
   });
   tr.appendChild(th);
 
   if (isCollapsed) {
-    // 折りたたみ時は、その日全体（DISPLAY_START〜DISPLAY_END）のミニ状況を人ごとに表示
     visibleNames.forEach((name) => {
-      const { status } = aggregate(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
+      const { status } = aggregate(date, state.displayStart, state.displayEnd, name);
       const td = document.createElement('td');
       td.className = 'cell' + (nameColClass(name) ? ' ' + nameColClass(name) : '');
       const box = document.createElement('div');
       box.className = `cellbox mini ${status}`;
       td.appendChild(box);
-      td.addEventListener('mousemove', (e) => {
-        const ranges = getBusyRanges(date, CONFIG.DISPLAY_START, CONFIG.DISPLAY_END, name);
-        showTooltip(e, `${name}：${formatRangeDetail(ranges, status)}`);
-      });
+      td.addEventListener('mousemove', (e) => showTooltip(e, `${name}：${formatRangeDetail(getBusyRanges(date, state.displayStart, state.displayEnd, name))}`));
       td.addEventListener('mouseleave', hideTooltip);
       tr.appendChild(td);
     });
-    if (CONFIG.INPUT_PAGE_URL) tr.appendChild(document.createElement('td'));
+    tr.appendChild(document.createElement('td'));
   } else {
     const spacer = document.createElement('td');
     spacer.className = 'spacer';
-    spacer.colSpan = visibleNames.length + (CONFIG.INPUT_PAGE_URL ? 1 : 0);
+    spacer.colSpan = visibleNames.length + 1;
     tr.appendChild(spacer);
   }
 
@@ -505,6 +363,7 @@ function appendDateGroupRow(tbody, date, visibleNames, isCollapsed) {
 function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
   const tr = document.createElement('tr');
   if (isCustom) tr.className = 'custom-row';
+
   const th = document.createElement('th');
   th.innerHTML = `<span class="tick"></span>${block.label}`;
   tr.appendChild(th);
@@ -516,14 +375,12 @@ function appendBlockRow(tbody, date, block, visibleNames, isCustom) {
     const box = document.createElement('div');
     box.className = `cellbox ${status}`;
     td.appendChild(box);
-    td.addEventListener('mousemove', (e) => {
-      const ranges = getBusyRanges(date, block.start, block.end, name);
-      showTooltip(e, `${name}：${formatRangeDetail(ranges, status)}`);
-    });
+    td.addEventListener('mousemove', (e) => showTooltip(e, `${name}：${formatRangeDetail(getBusyRanges(date, block.start, block.end, name))}`));
     td.addEventListener('mouseleave', hideTooltip);
     tr.appendChild(td);
   });
-  if (CONFIG.INPUT_PAGE_URL) tr.appendChild(document.createElement('td'));
+
+  tr.appendChild(document.createElement('td'));
   tbody.appendChild(tr);
 }
 
@@ -552,11 +409,8 @@ function renderMemberChips() {
     chip.textContent = name;
     chip.title = isHidden ? 'クリックで表示' : 'クリックで非表示';
     chip.addEventListener('click', () => {
-      if (state.hiddenNames.has(name)) {
-        state.hiddenNames.delete(name);
-      } else {
-        state.hiddenNames.add(name);
-      }
+      if (state.hiddenNames.has(name)) state.hiddenNames.delete(name);
+      else state.hiddenNames.add(name);
       renderMemberChips();
       renderMainGrid();
     });
@@ -570,11 +424,25 @@ function showTooltip(e, text) {
   tooltip.style.top = e.clientY + 14 + 'px';
   tooltip.textContent = text;
 }
+
 function hideTooltip() {
   tooltip.hidden = true;
 }
 
-// ---------------- Granularity control ----------------
+function buildCustomTimeOptions() {
+  customStartSel.innerHTML = '';
+  customEndSel.innerHTML = '';
+  const start = timeToMinutes(state.displayStart);
+  const end = endToMinutes(state.displayEnd);
+  for (let min = start; min <= end; min += 15) {
+    const label = minutesToTime(min);
+    customStartSel.appendChild(new Option(label, label));
+    customEndSel.appendChild(new Option(label, label));
+  }
+  customStartSel.value = state.displayStart;
+  customEndSel.value = state.displayEnd;
+}
+
 el('granularityControl').addEventListener('click', (e) => {
   const btn = e.target.closest('.gbtn');
   if (!btn) return;
@@ -584,34 +452,15 @@ el('granularityControl').addEventListener('click', (e) => {
   renderMainGrid();
 });
 
-// ---------------- Expand / collapse all date groups ----------------
 el('expandAllBtn').addEventListener('click', () => {
   state.collapsedDates.clear();
   renderMainGrid();
 });
+
 el('collapseAllBtn').addEventListener('click', () => {
   state.collapsedDates = new Set(state.dates);
   renderMainGrid();
 });
-
-// ---------------- Custom time-block controls (＋ボタン) ----------------
-function buildCustomTimeOptions() {
-  customStartSel.innerHTML = '';
-  customEndSel.innerHTML = '';
-  const dispStart = timeToMinutes(CONFIG.DISPLAY_START);
-  const dispEnd = timeToMinutes(CONFIG.DISPLAY_END);
-  for (let min = dispStart; min <= dispEnd; min += 15) {
-    const label = minutesToTime(min);
-    const optS = document.createElement('option');
-    optS.value = label; optS.textContent = label;
-    customStartSel.appendChild(optS);
-    const optE = document.createElement('option');
-    optE.value = label; optE.textContent = label;
-    customEndSel.appendChild(optE);
-  }
-  customStartSel.value = CONFIG.DISPLAY_START;
-  customEndSel.value = CONFIG.DISPLAY_END;
-}
 
 addBlockToggle.addEventListener('click', () => {
   addBlockBar.hidden = !addBlockBar.hidden;
@@ -621,12 +470,12 @@ addBlockToggle.addEventListener('click', () => {
 el('addBlockBtn').addEventListener('click', () => {
   const start = customStartSel.value;
   const end = customEndSel.value;
-  if (timeToMinutes(end) <= timeToMinutes(start)) {
+  if (endToMinutes(end) <= timeToMinutes(start)) {
     alert('終了時刻は開始時刻より後にしてください。');
     return;
   }
-  const label = (customLabelInput.value || '').trim() || `${start}〜${end}`;
-  state.customBlocks.push({ id: Date.now() + Math.random(), start, end, label });
+  const label = customLabelInput.value.trim() || `${start}〜${end}`;
+  state.customBlocks.push({ id: `${Date.now()}-${Math.random()}`, start, end, label });
   customLabelInput.value = '';
   addBlockBar.hidden = true;
   addBlockToggle.classList.remove('active');
@@ -634,50 +483,41 @@ el('addBlockBtn').addEventListener('click', () => {
   renderMainGrid();
 });
 
-// ---------------- Auto-load on startup ----------------
 async function autoLoad() {
-  const eventName = getEventNameFromUrl();
-  state.eventName = eventName;
-
-  if (!CONFIG.CSV_URL) {
-    // URL未設定の場合はサンプルデータを表示
-    statusText.textContent = 'サンプルデータを表示中（CONFIG.CSV_URL 未設定）';
-    ingestCSV(SAMPLE_CSV);
+  state.eventName = getEventNameFromUrl();
+  if (!state.eventName) {
+    showError('イベントが指定されていません。予定表のURLを確認してください。');
     return;
   }
 
   statusText.textContent = '読み込み中…';
   try {
-    const base = baseScriptUrl();
-    let csvUrl = CONFIG.CSV_URL;
+    const metaUrl = new URL(CONFIG.GAS_URL);
+    metaUrl.searchParams.set('page', 'meta');
+    metaUrl.searchParams.set('event', state.eventName);
 
-    if (eventName) {
-      // イベント指定時は、まずメタ情報（期間・調整対象の時間帯）を取得してCONFIGを上書きする
-      const metaUrl = base + '?event=' + encodeURIComponent(eventName) + '&page=meta';
-      try {
-        const metaRes = await fetch(metaUrl);
-        if (metaRes.ok) {
-          const meta = await metaRes.json();
-          if (meta.dateStart) CONFIG.DATE_START = meta.dateStart;
-          if (meta.dateEnd) CONFIG.DATE_END = meta.dateEnd;
-          if (meta.displayStart) CONFIG.DISPLAY_START = meta.displayStart;
-          if (meta.displayEnd) CONFIG.DISPLAY_END = meta.displayEnd;
-        }
-      } catch (metaErr) {
-        // メタ情報の取得に失敗しても、CSV自体は取得を試みる（従来の固定値のまま表示）
-      }
-      csvUrl = base + '?event=' + encodeURIComponent(eventName);
-    }
+    const csvUrl = new URL(CONFIG.GAS_URL);
+    csvUrl.searchParams.set('event', state.eventName);
 
-    const res = await fetch(csvUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    ingestCSV(text);
+    const [metaRes, csvRes] = await Promise.all([fetch(metaUrl), fetch(csvUrl)]);
+    if (!metaRes.ok) throw new Error(`メタ情報 HTTP ${metaRes.status}`);
+    if (!csvRes.ok) throw new Error(`予定データ HTTP ${csvRes.status}`);
+
+    const meta = await metaRes.json();
+    if (meta.error) throw new Error(meta.error);
+
+    state.eventName = meta.eventName;
+    state.displayStart = meta.displayStart;
+    state.displayEnd = meta.displayEnd;
+    state.roleDefs = Array.isArray(meta.roles) ? meta.roles : [];
+    state.dates = generateDateRange(meta.dateStart, meta.dateEnd);
+
+    el('eventTitle').textContent = meta.eventName;
+    document.title = `${meta.eventName} | 空き時間ビューア`;
+
+    ingestCSV(await csvRes.text());
   } catch (err) {
-    showError(
-      'CSVの読み込みに失敗しました（' + err.message + '）。' +
-      'CONFIG.CSV_URL がウェブに公開されたCSV形式のURLか確認してください（app.js冒頭で設定）。'
-    );
+    showError('予定表の読み込みに失敗しました（' + err.message + '）。');
   }
 }
 
