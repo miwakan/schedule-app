@@ -3,8 +3,10 @@
 // ============================================================
 
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
+  GAS_URL:
+    'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec',
 };
+
 
 const state = {
   eventName: '',
@@ -21,8 +23,11 @@ const state = {
   displayEnd: '22:00',
 };
 
-const el = (id) =>
-  document.getElementById(id);
+
+const el =
+  (id) =>
+    document.getElementById(id);
+
 
 const loadError =
   el('loadError');
@@ -64,37 +69,54 @@ const memberChipRow =
   el('memberChipRow');
 
 
-const pad2 = (n) =>
-  String(n).padStart(2, '0');
+const pad2 =
+  (n) =>
+    String(n)
+      .padStart(
+        2,
+        '0'
+      );
 
 
 function timeToMinutes(t) {
-  const [h, m] =
+  const parts =
     String(t)
       .split(':')
       .map(Number);
 
-  return h * 60 + m;
+  return (
+    parts[0] * 60 +
+    parts[1]
+  );
 }
 
 
 function minutesToTime(min) {
-  if (min >= 24 * 60) {
+  if (
+    min >=
+    24 * 60
+  ) {
     return '24:00';
   }
 
   return (
     `${pad2(
-      Math.floor(min / 60)
-    )}:${pad2(min % 60)}`
+      Math.floor(
+        min / 60
+      )
+    )}:${pad2(
+      min % 60
+    )}`
   );
 }
 
 
 function endToMinutes(t) {
-  return t === '24:00'
-    ? 24 * 60
-    : timeToMinutes(t);
+  return (
+    t === '24:00'
+      ? 24 * 60
+      : timeToMinutes(t)
+  );
 }
 
 
@@ -102,16 +124,16 @@ function addDaysToDateStr(
   dateStr,
   days
 ) {
-  const [y, m, d] =
+  const parts =
     dateStr
       .split('-')
       .map(Number);
 
   const dt =
     new Date(
-      y,
-      m - 1,
-      d + days
+      parts[0],
+      parts[1] - 1,
+      parts[2] + days
     );
 
   return (
@@ -135,7 +157,8 @@ function generateDateRange(
   let cur =
     startStr;
 
-  let guard = 0;
+  let guard =
+    0;
 
   while (
     cur <= endStr &&
@@ -160,7 +183,8 @@ function getEventNameFromUrl() {
   return (
     new URLSearchParams(
       window.location.search
-    ).get('event') || ''
+    ).get('event') ||
+    ''
   );
 }
 
@@ -172,30 +196,39 @@ function findColumnIndex(
   const normalized =
     header.map(
       (h) =>
-        String(h || '')
+        String(
+          h || ''
+        )
           .trim()
           .toLowerCase()
     );
 
-  return normalized.findIndex(
-    (h) =>
-      names.some(
-        (name) =>
-          h ===
-          name.toLowerCase()
-      )
-  );
+  return normalized
+    .findIndex(
+      (h) =>
+        names.some(
+          (name) =>
+            h ===
+            name.toLowerCase()
+        )
+    );
 }
 
 
 function ingestCSV(csvText) {
   const parsed =
     Papa.parse(
-      String(csvText || '')
-        .replace(/^\uFEFF/, '')
+      String(
+        csvText || ''
+      )
+        .replace(
+          /^\uFEFF/,
+          ''
+        )
         .trim(),
       {
-        skipEmptyLines: true
+        skipEmptyLines:
+          true
       }
     );
 
@@ -203,11 +236,17 @@ function ingestCSV(csvText) {
     parsed.data || [];
 
 
-  // 予定0件でも正常に予定表を表示する
-  if (rows.length === 0) {
-    state.names = [];
-    state.rolesByName = {};
-    state.eventsByPersonDate = {};
+  if (
+    rows.length === 0
+  ) {
+    state.names =
+      [];
+
+    state.rolesByName =
+      {};
+
+    state.eventsByPersonDate =
+      {};
 
     finishLoad(0);
 
@@ -218,7 +257,9 @@ function ingestCSV(csvText) {
   const header =
     rows[0].map(
       (h) =>
-        String(h || '')
+        String(
+          h || ''
+        )
           .replace(
             /[\uFEFF\u200B]/g,
             ''
@@ -292,7 +333,7 @@ function ingestCSV(csvText) {
           'role',
           '役割'
         ]
-      ),
+      )
   };
 
 
@@ -304,7 +345,8 @@ function ingestCSV(csvText) {
       idx.end,
       idx.status
     ].some(
-      (i) => i === -1
+      (i) =>
+        i === -1
     )
   ) {
     throw new Error(
@@ -383,10 +425,42 @@ function ingestCSV(csvText) {
 
     if (
       !name ||
-      !date ||
-      endToMinutes(end) <=
-        timeToMinutes(start)
+      !date
     ) {
+      continue;
+    }
+
+
+    const startMin =
+      timeToMinutes(
+        start
+      );
+
+    const endMin =
+      endToMinutes(
+        end
+      );
+
+
+    if (
+      !Number.isFinite(
+        startMin
+      ) ||
+      !Number.isFinite(
+        endMin
+      ) ||
+      endMin <= startMin
+    ) {
+      console.warn(
+        '不正な予定時刻をスキップ:',
+        {
+          name,
+          date,
+          start,
+          end
+        }
+      );
+
       continue;
     }
 
@@ -409,32 +483,47 @@ function ingestCSV(csvText) {
 
 
     if (
-      !eventsByPersonDate[name]
+      !eventsByPersonDate[
+        name
+      ]
     ) {
-      eventsByPersonDate[name] =
-        {};
+      eventsByPersonDate[
+        name
+      ] = {};
     }
 
 
     if (
-      !eventsByPersonDate[name][date]
+      !eventsByPersonDate[
+        name
+      ][date]
     ) {
-      eventsByPersonDate[name][date] =
-        [];
+      eventsByPersonDate[
+        name
+      ][date] = [];
     }
 
 
-    eventsByPersonDate[name][date]
-      .push({
+    eventsByPersonDate[
+      name
+    ][date].push({
+      start:
         start,
+
+      end:
         end,
-        status:
+
+      status:
+        (
           statusRaw === 'busy' ||
           statusRaw === '1'
-            ? 'busy'
-            : 'other',
-        note,
-      });
+        )
+          ? 'busy'
+          : 'other',
+
+      note:
+        note
+    });
 
     count++;
   }
@@ -492,7 +581,10 @@ function showError(msg) {
 }
 
 
-// 重複する予定も二重加算せずに判定する
+// ------------------------------------------------------------
+// 色判定
+// ------------------------------------------------------------
+
 function aggregate(
   date,
   startTime,
@@ -526,26 +618,28 @@ function aggregate(
         ] || {}
       )[date] || []
     )
-      .map((ev) => ({
-        start:
-          Math.max(
-            bStart,
-            timeToMinutes(
-              ev.start
-            )
-          ),
+      .map(
+        (ev) => ({
+          start:
+            Math.max(
+              bStart,
+              timeToMinutes(
+                ev.start
+              )
+            ),
 
-        end:
-          Math.min(
-            bEnd,
-            endToMinutes(
-              ev.end
-            )
-          ),
+          end:
+            Math.min(
+              bEnd,
+              endToMinutes(
+                ev.end
+              )
+            ),
 
-        status:
-          ev.status,
-      }))
+          status:
+            ev.status
+        })
+      )
       .filter(
         (ev) =>
           ev.end >
@@ -558,7 +652,6 @@ function aggregate(
       bStart,
       bEnd
     ]);
-
 
   events.forEach(
     (ev) => {
@@ -574,11 +667,12 @@ function aggregate(
 
 
   const points =
-    [...boundaries]
-      .sort(
-        (a, b) =>
-          a - b
-      );
+    [
+      ...boundaries
+    ].sort(
+      (a, b) =>
+        a - b
+    );
 
 
   const types =
@@ -596,7 +690,9 @@ function aggregate(
     const e =
       points[i + 1];
 
-    if (e <= s) {
+    if (
+      e <= s
+    ) {
       continue;
     }
 
@@ -615,6 +711,7 @@ function aggregate(
       types.add(
         'free'
       );
+
     } else {
       covering.forEach(
         (ev) =>
@@ -632,15 +729,28 @@ function aggregate(
     types.size === 1
   ) {
     const type =
-      [...types][0];
+      [
+        ...types
+      ][0];
+
+    if (
+      type === 'busy'
+    ) {
+      return {
+        status: 'red'
+      };
+    }
+
+    if (
+      type === 'other'
+    ) {
+      return {
+        status: 'other'
+      };
+    }
 
     return {
-      status:
-        type === 'busy'
-          ? 'red'
-          : type === 'other'
-            ? 'other'
-            : 'green'
+      status: 'green'
     };
   }
 
@@ -667,7 +777,6 @@ function getBusyRanges(
       endTime
     );
 
-
   return (
     (
       (
@@ -677,29 +786,31 @@ function getBusyRanges(
       )[date] || []
     )
   )
-    .map((ev) => ({
-      startMin:
-        Math.max(
-          bStart,
-          timeToMinutes(
-            ev.start
-          )
-        ),
+    .map(
+      (ev) => ({
+        startMin:
+          Math.max(
+            bStart,
+            timeToMinutes(
+              ev.start
+            )
+          ),
 
-      endMin:
-        Math.min(
-          bEnd,
-          endToMinutes(
-            ev.end
-          )
-        ),
+        endMin:
+          Math.min(
+            bEnd,
+            endToMinutes(
+              ev.end
+            )
+          ),
 
-      status:
-        ev.status,
+        status:
+          ev.status,
 
-      note:
-        ev.note,
-    }))
+        note:
+          ev.note
+      })
+    )
     .filter(
       (ev) =>
         ev.endMin >
@@ -710,25 +821,27 @@ function getBusyRanges(
         a.startMin -
         b.startMin
     )
-    .map((ev) => ({
-      start:
-        minutesToTime(
-          ev.startMin
-        ),
+    .map(
+      (ev) => ({
+        start:
+          minutesToTime(
+            ev.startMin
+          ),
 
-      end:
-        minutesToTime(
-          ev.endMin
-        ),
+        end:
+          minutesToTime(
+            ev.endMin
+          ),
 
-      value:
-        ev.status === 'busy'
-          ? 1
-          : (
-              ev.note ||
-              'その他'
-            ),
-    }));
+        value:
+          ev.status === 'busy'
+            ? 1
+            : (
+                ev.note ||
+                'その他'
+              )
+      })
+    );
 }
 
 
@@ -743,17 +856,24 @@ function formatRangeDetail(
     );
   }
 
-
   return ranges
     .map(
       (r) =>
         r.value === 1
-          ? `${r.start}〜${r.end}に予定あり`
-          : `${r.start}〜${r.end}：${r.value}`
+          ? (
+              `${r.start}〜${r.end}に予定あり`
+            )
+          : (
+              `${r.start}〜${r.end}：${r.value}`
+            )
     )
     .join('、');
 }
 
+
+// ------------------------------------------------------------
+// 表示時間ブロック
+// ------------------------------------------------------------
 
 function blocksForGranularity(g) {
   const dispStart =
@@ -767,30 +887,37 @@ function blocksForGranularity(g) {
     );
 
 
-  if (g === 'day') {
+  if (
+    g === 'day'
+  ) {
     return [{
-      label: '終日',
+      label:
+        '終日',
+
       start:
         state.displayStart,
+
       end:
         state.displayEnd
     }];
   }
 
 
-  if (g === 'ampm') {
+  if (
+    g === 'ampm'
+  ) {
     const noon =
       12 * 60;
 
     const blocks =
       [];
 
-
     if (
       dispStart < noon
     ) {
       blocks.push({
-        label: '午前',
+        label:
+          '午前',
 
         start:
           state.displayStart,
@@ -805,12 +932,12 @@ function blocksForGranularity(g) {
       });
     }
 
-
     if (
       dispEnd > noon
     ) {
       blocks.push({
-        label: '午後',
+        label:
+          '午後',
 
         start:
           minutesToTime(
@@ -824,7 +951,6 @@ function blocksForGranularity(g) {
           state.displayEnd
       });
     }
-
 
     return blocks;
   }
@@ -853,7 +979,6 @@ function blocksForGranularity(g) {
         dispEnd
       );
 
-
     blocks.push({
       label:
         minutesToTime(
@@ -872,17 +997,15 @@ function blocksForGranularity(g) {
     });
   }
 
-
   return blocks;
 }
 
 
 function formatDateLabel(dateStr) {
-  const [y, m, d] =
+  const parts =
     dateStr
       .split('-')
       .map(Number);
-
 
   const dow =
     [
@@ -895,18 +1018,21 @@ function formatDateLabel(dateStr) {
       '土'
     ][
       new Date(
-        y,
-        m - 1,
-        d
+        parts[0],
+        parts[1] - 1,
+        parts[2]
       ).getDay()
     ];
 
-
   return (
-    `${m}/${d} (${dow})`
+    `${parts[1]}/${parts[2]} (${dow})`
   );
 }
 
+
+// ------------------------------------------------------------
+// ロール
+// ------------------------------------------------------------
 
 function roleGroup(name) {
   const role =
@@ -914,12 +1040,10 @@ function roleGroup(name) {
       name
     ] || '';
 
-
-  // ロール未指定は金
+  // ロールなしは金
   if (!role) {
     return 'staff';
   }
-
 
   const def =
     state.roleDefs.find(
@@ -927,11 +1051,12 @@ function roleGroup(name) {
         r.name === role
     );
 
-
-  // 不明なロールも金
-  return def
-    ? def.group
-    : 'staff';
+  // 定義不明でも金
+  return (
+    def
+      ? def.group
+      : 'staff'
+  );
 }
 
 
@@ -939,11 +1064,13 @@ function groupRank(name) {
   const group =
     roleGroup(name);
 
-  return group === 'staff'
-    ? 2
-    : group === 'tbd'
-      ? 1
-      : 0;
+  return (
+    group === 'staff'
+      ? 2
+      : group === 'tbd'
+        ? 1
+        : 0
+  );
 }
 
 
@@ -965,7 +1092,8 @@ function getOrderedNames(names) {
           b.i
     )
     .map(
-      (x) => x.name
+      (x) =>
+        x.name
     );
 }
 
@@ -974,11 +1102,13 @@ function nameColClass(name) {
   const group =
     roleGroup(name);
 
-  return group === 'staff'
-    ? 'staff-col'
-    : group === 'tbd'
-      ? 'tbd-col'
-      : '';
+  return (
+    group === 'staff'
+      ? 'staff-col'
+      : group === 'tbd'
+        ? 'tbd-col'
+        : ''
+  );
 }
 
 
@@ -986,13 +1116,19 @@ function nameChipClass(name) {
   const group =
     roleGroup(name);
 
-  return group === 'staff'
-    ? 'staff'
-    : group === 'tbd'
-      ? 'tbd'
-      : '';
+  return (
+    group === 'staff'
+      ? 'staff'
+      : group === 'tbd'
+        ? 'tbd'
+        : ''
+  );
 }
 
+
+// ------------------------------------------------------------
+// 入力ページURL
+// ------------------------------------------------------------
 
 function inputUrl(params) {
   const url =
@@ -1010,7 +1146,6 @@ function inputUrl(params) {
     state.eventName
   );
 
-
   Object.entries(
     params || {}
   ).forEach(
@@ -1021,17 +1156,19 @@ function inputUrl(params) {
       )
   );
 
-
   return url.toString();
 }
 
+
+// ------------------------------------------------------------
+// Grid
+// ------------------------------------------------------------
 
 function renderMainGrid() {
   const presetBlocks =
     blocksForGranularity(
       state.granularity
     );
-
 
   const visibleNames =
     getOrderedNames(
@@ -1049,7 +1186,6 @@ function renderMainGrid() {
       'thead'
     );
 
-
   const headRow =
     document.createElement(
       'tr'
@@ -1062,11 +1198,15 @@ function renderMainGrid() {
     visibleNames
       .map(
         (name) =>
-          `<th class="${nameColClass(name)}"><a href="${inputUrl({ name })}">${name}</a></th>`
+          `<th class="${nameColClass(name)}"><a href="${inputUrl({
+            name: name
+          })}">${name}</a></th>`
       )
       .join('') +
 
-    `<th class="add-col"><a href="${inputUrl({ new: '1' })}" title="新しいメンバーを追加">＋</a></th>`;
+    `<th class="add-col"><a href="${inputUrl({
+      new: '1'
+    })}" title="新しいメンバーを追加">＋</a></th>`;
 
 
   thead.appendChild(
@@ -1087,14 +1227,12 @@ function renderMainGrid() {
           date
         );
 
-
       appendDateGroupRow(
         tbody,
         date,
         visibleNames,
         isCollapsed
       );
-
 
       if (!isCollapsed) {
         presetBlocks.forEach(
@@ -1107,7 +1245,6 @@ function renderMainGrid() {
               false
             )
         );
-
 
         state.customBlocks.forEach(
           (block) =>
@@ -1157,10 +1294,8 @@ function appendDateGroupRow(
       'th'
     );
 
-
   th.innerHTML =
     `<span class="chevron">${isCollapsed ? '▶' : '▼'}</span>${formatDateLabel(date)}`;
-
 
   th.addEventListener(
     'click',
@@ -1173,6 +1308,7 @@ function appendDateGroupRow(
         state.collapsedDates.delete(
           date
         );
+
       } else {
         state.collapsedDates.add(
           date
@@ -1183,14 +1319,15 @@ function appendDateGroupRow(
     }
   );
 
-
   tr.appendChild(th);
 
 
-  if (isCollapsed) {
+  if (
+    isCollapsed
+  ) {
     visibleNames.forEach(
       (name) => {
-        const { status } =
+        const result =
           aggregate(
             date,
             state.displayStart,
@@ -1198,37 +1335,34 @@ function appendDateGroupRow(
             name
           );
 
-
         const td =
           document.createElement(
             'td'
           );
 
+        const columnClass =
+          nameColClass(
+            name
+          );
 
         td.className =
           'cell' +
           (
-            nameColClass(name)
+            columnClass
               ? ' ' +
-                nameColClass(name)
+                columnClass
               : ''
           );
-
 
         const box =
           document.createElement(
             'div'
           );
 
-
         box.className =
-          `cellbox mini ${status}`;
+          `cellbox mini ${result.status}`;
 
-
-        td.appendChild(
-          box
-        );
-
+        td.appendChild(box);
 
         td.addEventListener(
           'mousemove',
@@ -1246,20 +1380,16 @@ function appendDateGroupRow(
             )
         );
 
-
         td.addEventListener(
           'mouseleave',
           hideTooltip
         );
 
-
-        tr.appendChild(
-          td
-        );
+        tr.appendChild(td);
       }
     );
 
-
+    // ＋列用
     tr.appendChild(
       document.createElement(
         'td'
@@ -1272,20 +1402,17 @@ function appendDateGroupRow(
         'td'
       );
 
-
     spacer.className =
       'spacer';
 
-
     spacer.colSpan =
-      visibleNames.length + 1;
-
+      visibleNames.length +
+      1;
 
     tr.appendChild(
       spacer
     );
   }
-
 
   tbody.appendChild(
     tr
@@ -1305,29 +1432,27 @@ function appendBlockRow(
       'tr'
     );
 
-
-  if (isCustom) {
+  if (
+    isCustom
+  ) {
     tr.className =
       'custom-row';
   }
-
 
   const th =
     document.createElement(
       'th'
     );
 
-
   th.innerHTML =
     `<span class="tick"></span>${block.label}`;
-
 
   tr.appendChild(th);
 
 
   visibleNames.forEach(
     (name) => {
-      const { status } =
+      const result =
         aggregate(
           date,
           block.start,
@@ -1335,37 +1460,34 @@ function appendBlockRow(
           name
         );
 
-
       const td =
         document.createElement(
           'td'
         );
 
+      const columnClass =
+        nameColClass(
+          name
+        );
 
       td.className =
         'cell' +
         (
-          nameColClass(name)
+          columnClass
             ? ' ' +
-              nameColClass(name)
+              columnClass
             : ''
         );
-
 
       const box =
         document.createElement(
           'div'
         );
 
-
       box.className =
-        `cellbox ${status}`;
+        `cellbox ${result.status}`;
 
-
-      td.appendChild(
-        box
-      );
-
+      td.appendChild(box);
 
       td.addEventListener(
         'mousemove',
@@ -1383,19 +1505,14 @@ function appendBlockRow(
           )
       );
 
-
       td.addEventListener(
         'mouseleave',
         hideTooltip
       );
 
-
-      tr.appendChild(
-        td
-      );
+      tr.appendChild(td);
     }
   );
-
 
   tr.appendChild(
     document.createElement(
@@ -1403,17 +1520,19 @@ function appendBlockRow(
     )
   );
 
-
   tbody.appendChild(
     tr
   );
 }
 
 
+// ------------------------------------------------------------
+// UI
+// ------------------------------------------------------------
+
 function renderCustomChips() {
   customChipRow.innerHTML =
     '';
-
 
   state.customBlocks.forEach(
     (block) => {
@@ -1422,14 +1541,11 @@ function renderCustomChips() {
           'span'
         );
 
-
       chip.className =
         'custom-chip';
 
-
       chip.innerHTML =
         `${block.label}<span class="chip-remove" title="削除">×</span>`;
-
 
       chip
         .querySelector(
@@ -1448,7 +1564,6 @@ function renderCustomChips() {
             renderMainGrid();
           };
 
-
       customChipRow.appendChild(
         chip
       );
@@ -1461,7 +1576,6 @@ function renderMemberChips() {
   memberChipRow.innerHTML =
     '';
 
-
   getOrderedNames(
     state.names
   ).forEach(
@@ -1471,16 +1585,13 @@ function renderMemberChips() {
           'button'
         );
 
-
       const isHidden =
         state.hiddenNames.has(
           name
         );
 
-
       chip.type =
         'button';
-
 
       chip.className =
         'member-chip' +
@@ -1496,16 +1607,13 @@ function renderMemberChips() {
             : ''
         );
 
-
       chip.textContent =
         name;
-
 
       chip.title =
         isHidden
           ? 'クリックで表示'
           : 'クリックで非表示';
-
 
       chip.addEventListener(
         'click',
@@ -1518,6 +1626,7 @@ function renderMemberChips() {
             state.hiddenNames.delete(
               name
             );
+
           } else {
             state.hiddenNames.add(
               name
@@ -1528,7 +1637,6 @@ function renderMemberChips() {
           renderMainGrid();
         }
       );
-
 
       memberChipRow.appendChild(
         chip
@@ -1573,7 +1681,6 @@ function buildCustomTimeOptions() {
   customEndSel.innerHTML =
     '';
 
-
   const start =
     timeToMinutes(
       state.displayStart
@@ -1583,7 +1690,6 @@ function buildCustomTimeOptions() {
     endToMinutes(
       state.displayEnd
     );
-
 
   for (
     let min = start;
@@ -1595,14 +1701,12 @@ function buildCustomTimeOptions() {
         min
       );
 
-
     customStartSel.appendChild(
       new Option(
         label,
         label
       )
     );
-
 
     customEndSel.appendChild(
       new Option(
@@ -1611,7 +1715,6 @@ function buildCustomTimeOptions() {
       )
     );
   }
-
 
   customStartSel.value =
     state.displayStart;
@@ -1631,11 +1734,9 @@ el(
         '.gbtn'
       );
 
-
     if (!btn) {
       return;
     }
-
 
     document
       .querySelectorAll(
@@ -1648,15 +1749,12 @@ el(
           )
       );
 
-
     btn.classList.add(
       'active'
     );
 
-
     state.granularity =
       btn.dataset.g;
-
 
     renderMainGrid();
   }
@@ -1695,7 +1793,6 @@ addBlockToggle.addEventListener(
     addBlockBar.hidden =
       !addBlockBar.hidden;
 
-
     addBlockToggle
       .classList
       .toggle(
@@ -1717,7 +1814,6 @@ el(
     const end =
       customEndSel.value;
 
-
     if (
       endToMinutes(end) <=
       timeToMinutes(start)
@@ -1729,30 +1825,31 @@ el(
       return;
     }
 
-
     const label =
       customLabelInput
         .value
         .trim() ||
       `${start}〜${end}`;
 
-
     state.customBlocks.push({
       id:
         `${Date.now()}-${Math.random()}`,
-      start,
-      end,
-      label
-    });
 
+      start:
+        start,
+
+      end:
+        end,
+
+      label:
+        label
+    });
 
     customLabelInput.value =
       '';
 
-
     addBlockBar.hidden =
       true;
-
 
     addBlockToggle
       .classList
@@ -1760,19 +1857,23 @@ el(
         'active'
       );
 
-
     renderCustomChips();
     renderMainGrid();
   }
 );
 
 
+// ------------------------------------------------------------
+// Load
+// ------------------------------------------------------------
+
 async function autoLoad() {
   state.eventName =
     getEventNameFromUrl();
 
-
-  if (!state.eventName) {
+  if (
+    !state.eventName
+  ) {
     showError(
       'イベントが指定されていません。予定表のURLを確認してください。'
     );
@@ -1780,10 +1881,8 @@ async function autoLoad() {
     return;
   }
 
-
   statusText.textContent =
     '読み込み中…';
-
 
   try {
     const metaUrl =
@@ -1791,12 +1890,10 @@ async function autoLoad() {
         CONFIG.GAS_URL
       );
 
-
     metaUrl.searchParams.set(
       'page',
       'meta'
     );
-
 
     metaUrl.searchParams.set(
       'event',
@@ -1809,31 +1906,65 @@ async function autoLoad() {
         CONFIG.GAS_URL
       );
 
-
     csvUrl.searchParams.set(
       'event',
       state.eventName
     );
 
 
-    const [
-      metaRes,
-      csvRes
-    ] =
+    // GAS側やブラウザ側に空のCSVがキャッシュされないよう毎回URLを変える
+    const cacheBust =
+      Date.now()
+        .toString();
+
+    metaUrl.searchParams.set(
+      '_ts',
+      cacheBust
+    );
+
+    csvUrl.searchParams.set(
+      '_ts',
+      cacheBust
+    );
+
+
+    const responses =
       await Promise.all([
-        fetch(metaUrl),
-        fetch(csvUrl)
+        fetch(
+          metaUrl,
+          {
+            cache:
+              'no-store'
+          }
+        ),
+
+        fetch(
+          csvUrl,
+          {
+            cache:
+              'no-store'
+          }
+        )
       ]);
 
+    const metaRes =
+      responses[0];
 
-    if (!metaRes.ok) {
+    const csvRes =
+      responses[1];
+
+
+    if (
+      !metaRes.ok
+    ) {
       throw new Error(
         `メタ情報 HTTP ${metaRes.status}`
       );
     }
 
-
-    if (!csvRes.ok) {
+    if (
+      !csvRes.ok
+    ) {
       throw new Error(
         `予定データ HTTP ${csvRes.status}`
       );
@@ -1843,8 +1974,9 @@ async function autoLoad() {
     const meta =
       await metaRes.json();
 
-
-    if (meta.error) {
+    if (
+      meta.error
+    ) {
       throw new Error(
         meta.error
       );
@@ -1854,14 +1986,11 @@ async function autoLoad() {
     state.eventName =
       meta.eventName;
 
-
     state.displayStart =
       meta.displayStart;
 
-
     state.displayEnd =
       meta.displayEnd;
-
 
     state.roleDefs =
       Array.isArray(
@@ -1869,7 +1998,6 @@ async function autoLoad() {
       )
         ? meta.roles
         : [];
-
 
     state.dates =
       generateDateRange(
@@ -1883,13 +2011,15 @@ async function autoLoad() {
     ).textContent =
       meta.eventName;
 
-
     document.title =
       `${meta.eventName} | 空き時間ビューア`;
 
 
+    const csvText =
+      await csvRes.text();
+
     ingestCSV(
-      await csvRes.text()
+      csvText
     );
 
   } catch (err) {
