@@ -14,10 +14,12 @@ const CONFIG = {
   DEFAULT_YEAR: 2026,
 
   // グリッドに表示する日付の範囲（この範囲の日付が縦軸に並びます）
+  // ★URLに ?event=イベント名 が付いている場合は、この値はサーバー側のイベント情報で自動的に上書きされます
   DATE_START: '2026-08-05',
   DATE_END: '2026-08-31',
 
   // グリッドに表示する時間帯（この範囲外の時刻は表示されません）
+  // ★こちらも ?event= がある場合は自動的に上書きされます
   DISPLAY_START: '10:00',
   DISPLAY_END: '22:00',
 
@@ -53,6 +55,7 @@ const state = {
   customBlocks: [],          // {id, start, end, label}
   hiddenNames: new Set(),    // 非表示にしたメンバー名
   collapsedDates: new Set(), // 折りたたんだ日付（'YYYY-MM-DD'）
+  eventName: '',             // URLの ?event= から読み取ったイベント名（無ければ空文字＝従来の固定シート）
 };
 
 // 新形式（1件1行リスト）のサンプルデータ
@@ -135,6 +138,17 @@ function generateDateRange(startStr, endStr) {
     guard++;
   }
   return dates;
+}
+
+// ---------------- イベント対応（?event=）のためのURLヘルパー ----------------
+function getEventNameFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('event') || '';
+}
+
+// CONFIG.CSV_URL からクエリ部分を除いた、Apps ScriptのベースURLを得る
+function baseScriptUrl() {
+  return CONFIG.CSV_URL.split('?')[0];
 }
 
 // ---------------- CSV -> state ----------------
@@ -408,6 +422,11 @@ function nameChipClass(name) {
   return '';
 }
 
+// 入力ページへのリンクに付けるクエリ文字列（イベント対応時は &event=... を追加）
+function eventQueryString() {
+  return state.eventName ? `&event=${encodeURIComponent(state.eventName)}` : '';
+}
+
 function renderMainGrid() {
   const presetBlocks = blocksForGranularity(state.granularity);
   const visibleNames = getOrderedNames(state.names.filter((n) => !state.hiddenNames.has(n)));
@@ -416,10 +435,11 @@ function renderMainGrid() {
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
   const inputBase = CONFIG.INPUT_PAGE_URL;
-  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}">${n}</a>` : n;
+  const eventQ = eventQueryString();
+  const nameLink = (n) => inputBase ? `<a href="${inputBase}?page=input&name=${encodeURIComponent(n)}${eventQ}">${n}</a>` : n;
   headRow.innerHTML = `<th class="corner">日時</th>` +
     visibleNames.map((n) => `<th class="${nameColClass(n)}">${nameLink(n)}</th>`).join('') +
-    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1" title="新しいメンバーを追加">＋</a></th>` : '');
+    (inputBase ? `<th class="add-col"><a href="${inputBase}?page=input&new=1${eventQ}" title="新しいメンバーを追加">＋</a></th>` : '');
   thead.appendChild(headRow);
 
   const tbody = document.createElement('tbody');
@@ -616,15 +636,40 @@ el('addBlockBtn').addEventListener('click', () => {
 
 // ---------------- Auto-load on startup ----------------
 async function autoLoad() {
+  const eventName = getEventNameFromUrl();
+  state.eventName = eventName;
+
   if (!CONFIG.CSV_URL) {
     // URL未設定の場合はサンプルデータを表示
     statusText.textContent = 'サンプルデータを表示中（CONFIG.CSV_URL 未設定）';
     ingestCSV(SAMPLE_CSV);
     return;
   }
+
   statusText.textContent = '読み込み中…';
   try {
-    const res = await fetch(CONFIG.CSV_URL);
+    const base = baseScriptUrl();
+    let csvUrl = CONFIG.CSV_URL;
+
+    if (eventName) {
+      // イベント指定時は、まずメタ情報（期間・調整対象の時間帯）を取得してCONFIGを上書きする
+      const metaUrl = base + '?event=' + encodeURIComponent(eventName) + '&page=meta';
+      try {
+        const metaRes = await fetch(metaUrl);
+        if (metaRes.ok) {
+          const meta = await metaRes.json();
+          if (meta.dateStart) CONFIG.DATE_START = meta.dateStart;
+          if (meta.dateEnd) CONFIG.DATE_END = meta.dateEnd;
+          if (meta.displayStart) CONFIG.DISPLAY_START = meta.displayStart;
+          if (meta.displayEnd) CONFIG.DISPLAY_END = meta.displayEnd;
+        }
+      } catch (metaErr) {
+        // メタ情報の取得に失敗しても、CSV自体は取得を試みる（従来の固定値のまま表示）
+      }
+      csvUrl = base + '?event=' + encodeURIComponent(eventName);
+    }
+
+    const res = await fetch(csvUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     ingestCSV(text);
