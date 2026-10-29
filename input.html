@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>予定入力</title>
+<style>
+  :root{
+    --paper:#F5F2EA; --ink:#1D1B17; --ink-soft:#5B564C; --line:#DEDACC;
+    --indigo:#26375A; --indigo-soft:#3C517D; --gold:#B8892B;
+    --red:#D6483F; --green:#3E8E5A; --other:#8A8377;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:'Hiragino Sans','Yu Gothic',sans-serif;
+    background:var(--paper); color:var(--ink);
+    margin:0; padding:20px 16px 60px;
+    max-width:480px; margin-left:auto; margin-right:auto;
+  }
+  h1{font-size:18px; margin:0 0 18px;}
+  h2{font-size:15px; margin:0 0 10px;}
+  .card{
+    background:#fff; border:1px solid var(--line); border-radius:10px;
+    padding:16px; margin-bottom:16px;
+  }
+  .chip-row{display:flex; flex-wrap:wrap; gap:8px;}
+  .chip{
+    font-size:13px; padding:8px 14px; border-radius:20px;
+    border:1px solid var(--indigo); background:#fff; color:var(--indigo);
+    cursor:pointer;
+  }
+  .chip.plus{background:var(--indigo); color:#fff; font-weight:bold;}
+  label{display:block; font-size:12px; font-weight:bold; color:var(--ink-soft); margin:12px 0 4px;}
+  input[type=text], select, textarea{
+    width:100%; font-size:14px; padding:9px 10px; border:1px solid var(--line);
+    border-radius:7px; background:var(--paper); color:var(--ink); font-family:inherit;
+  }
+  textarea{min-height:120px; resize:vertical;}
+  button{
+    font-family:inherit; font-size:14px; font-weight:bold; border:none; border-radius:7px;
+    padding:10px 18px; cursor:pointer;
+  }
+  .btn-primary{background:var(--indigo); color:#fff;}
+  .btn-primary:disabled{opacity:.5; cursor:default;}
+  .btn-ghost{background:none; border:1px solid var(--indigo); color:var(--indigo);}
+  .btn-danger{background:none; border:none; color:var(--red); font-size:16px; padding:4px 8px;}
+  table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;}
+  th, td{border-bottom:1px solid var(--line); padding:6px 4px; text-align:left; vertical-align:top;}
+  th{color:var(--ink-soft); font-weight:bold;}
+  .status-busy{color:var(--red); font-weight:bold;}
+  .status-other{color:var(--other); font-weight:bold;}
+  .row-edit input{padding:4px 6px; font-size:12px;}
+  .hint{font-size:11.5px; color:var(--ink-soft); line-height:1.6; margin-top:6px;}
+  .error{color:var(--red); font-size:12.5px; margin-top:10px; white-space:pre-wrap;}
+  .loading{color:var(--ink-soft); font-size:13px;}
+  .back-link{font-size:13px; color:var(--indigo-soft); cursor:pointer; margin-bottom:14px; display:inline-block;}
+</style>
+</head>
+<body>
+
+<h1 id="pageTitle">予定入力</h1>
+
+<div style="margin:-10px 0 18px;">
+  <a id="viewerLink" href="#" style="font-size:13px; color:#3C517D;">
+    → 予定表を見る
+  </a>
+</div>
+
+<div id="app">
+  <p class="loading">読み込み中…</p>
+</div>
+
+<script>
+// GAS ウェブアプリのURL（app.js の CONFIG.GAS_URL と同じもの）
+var API_URL = 'https://script.google.com/macros/s/AKfycbx_-WATnisOs0lWx3ltkmuWEEaOww6cVkggSBIuTfV15jGpjsqGxXwjSARjZaw3Pf1Vtw/exec';
+
+// イベント名はURLの ?event=... から読む
+var EVENT_NAME = new URLSearchParams(window.location.search).get('event') || '';
+
+// 予定表（閲覧画面）は、このページと同じフォルダのトップ
+var VIEWER_URL =
+  new URL('./', window.location.href).href +
+  '?event=' + encodeURIComponent(EVENT_NAME);
+
+
+// ------------------------------------------------------------
+// GAS との通信
+// google.script.run と同じ書き方（withSuccessHandler など）で
+// 呼べるようにして、下の画面ロジックを変えずに済ませている。
+// ------------------------------------------------------------
+
+function callApi(fn, args) {
+  return fetch(API_URL, {
+    method: 'POST',
+    // text/plain にすると、ブラウザの事前確認（プリフライト）が不要になる
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ fn: fn, args: args })
+  })
+    .catch(function () {
+      throw new Error('通信に失敗しました。電波の良い場所で、もう一度お試しください。');
+    })
+    .then(function (res) {
+      if (!res.ok) {
+        throw new Error('通信エラーが発生しました（HTTP ' + res.status + '）。');
+      }
+
+      return res.json().catch(function () {
+        throw new Error('サーバーからの応答を読み取れませんでした。時間をおいて、もう一度お試しください。');
+      });
+    })
+    .then(function (data) {
+      if (!data || !data.ok) {
+        throw new Error((data && data.error) || 'エラーが発生しました。');
+      }
+
+      return data.result;
+    });
+}
+
+function createRunner(onOk, onNg) {
+  return new Proxy({}, {
+    get: function (_, prop) {
+      if (prop === 'withSuccessHandler') {
+        return function (fn) { return createRunner(fn, onNg); };
+      }
+
+      if (prop === 'withFailureHandler') {
+        return function (fn) { return createRunner(onOk, fn); };
+      }
+
+      return function () {
+        var args = Array.prototype.slice.call(arguments);
+
+        callApi(String(prop), args).then(
+          function (result) { if (onOk) { onOk(result); } },
+          function (err) { if (onNg) { onNg(err); } else { console.error(err); } }
+        );
+      };
+    }
+  });
+}
+
+var google = { script: { run: createRunner(null, null) } };
+
+var STATE = {
+  view: 'home',
+  names: [],
+  roleOptions: [],
+  currentName: '',
+  currentRole: '',
+  roleEditMode: false,
+  entries: [],
+  pending: [],
+  memo: '',          // メモ欄の入力内容（再描画で消えないように保持）
+  confirmId: '',     // 削除確認中の予定ID
+  confirmAll: false  // 「全部削除」の確認中かどうか
+};
+
+document.getElementById('pageTitle').textContent = EVENT_NAME + ' — 予定入力';
+document.getElementById('viewerLink').href = VIEWER_URL;
+
+
+function errMsg(err) {
+  return String((err && err.message) || err);
+}
+
+function showError(message) {
+  var box = document.getElementById('errorBox');
+  if (box) {
+    box.textContent = message;
+  }
+}
+
+
+function el(tag, attrs, children) {
+  var e = document.createElement(tag);
+  attrs = attrs || {};
+
+  Object.keys(attrs).forEach(function (k) {
+    if (k === 'text') {
+      e.textContent = attrs[k];
+    } else if (k === 'html') {
+      e.innerHTML = attrs[k];
+    } else if (k.indexOf('on') === 0) {
+      e.addEventListener(k.slice(2), attrs[k]);
+    } else {
+      e.setAttribute(k, attrs[k]);
+    }
+  });
+
+  (children || []).forEach(function (c) {
+    if (c) {
+      e.appendChild(c);
+    }
+  });
+
+  return e;
+}
+
+
+function render() {
+  var app = document.getElementById('app');
+  app.innerHTML = '';
+  app.appendChild(STATE.view === 'home' ? renderHome() : renderDetail());
+}
+
+
+function renderHome() {
+  var wrap = el('div', {});
+  var card = el('div', { class: 'card' });
+
+  card.appendChild(el('h2', { text: 'メンバーを選択（タップで編集）' }));
+
+  var chipRow = el('div', { class: 'chip-row' });
+
+  STATE.names.forEach(function (name) {
+    chipRow.appendChild(
+      el('div', {
+        class: 'chip',
+        text: name,
+        onclick: function () { openDetail(name); }
+      })
+    );
+  });
+
+  chipRow.appendChild(
+    el('div', {
+      class: 'chip plus',
+      text: '＋ 新規追加',
+      onclick: function () { openDetail(''); }
+    })
+  );
+
+  card.appendChild(chipRow);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+
+function openDetail(name) {
+  STATE.currentName = name;
+  STATE.currentRole = '';
+  STATE.roleEditMode = false;
+  STATE.entries = [];
+  STATE.pending = [];
+  STATE.memo = '';
+  STATE.confirmId = '';
+  STATE.confirmAll = false;
+  STATE.view = 'detail';
+
+  render();
+
+  if (name) {
+    google.script.run
+      .withSuccessHandler(function (entries) {
+        STATE.entries = entries;
+
+        if (entries.length > 0) {
+          STATE.currentRole = entries[0].role || '';
+        }
+
+        render();
+      })
+      .withFailureHandler(showFatalError)
+      .getEntriesForName(name, EVENT_NAME);
+  }
+}
+
+
+function buildRoleSelect(onChange) {
+  var sel = el('select', { id: 'roleSelect' });
+
+  sel.appendChild(el('option', { value: '', text: 'ロールなし' }));
+
+  STATE.roleOptions.forEach(function (opt) {
+    var o = el('option', { value: opt, text: opt });
+
+    if (opt === STATE.currentRole) {
+      o.selected = true;
+    }
+
+    sel.appendChild(o);
+  });
+
+  if (onChange) {
+    sel.addEventListener('change', onChange);
+  }
+
+  return sel;
+}
+
+
+function renderDetail() {
+  var wrap = el('div', {});
+
+  wrap.appendChild(
+    el('div', {
+      class: 'back-link',
+      text: '← メンバー一覧に戻る',
+      onclick: function () {
+        STATE.view = 'home';
+        render();
+        loadNames();
+      }
+    })
+  );
+
+
+  // ---------- 名前・ロール ----------
+  var infoCard = el('div', { class: 'card' });
+
+  infoCard.appendChild(
+    el('h2', {
+      text: STATE.currentName
+        ? STATE.currentName + ' さんの予定'
+        : '新しいメンバーを追加'
+    })
+  );
+
+  infoCard.appendChild(el('label', { text: '名前' }));
+
+  infoCard.appendChild(
+    el('input', {
+      type: 'text',
+      id: 'nameInput',
+      value: STATE.currentName,
+      oninput: function (e) { STATE.currentName = e.target.value; }
+    })
+  );
+
+  infoCard.appendChild(el('label', { text: 'ステータス' }));
+
+  if (STATE.entries.length === 0) {
+    infoCard.appendChild(
+      buildRoleSelect(function (e) { STATE.currentRole = e.target.value; })
+    );
+
+  } else if (STATE.roleEditMode) {
+    var roleRow = el('div', {
+      style: 'display:flex; gap:8px; align-items:center;'
+    });
+
+    var roleSelectEdit = buildRoleSelect();
+    roleSelectEdit.setAttribute('style', 'flex:1;');
+    roleRow.appendChild(roleSelectEdit);
+
+    roleRow.appendChild(
+      el('button', {
+        class: 'btn-primary',
+        text: '更新',
+        style: 'padding:8px 14px; font-size:13px; white-space:nowrap;',
+        onclick: function (e) {
+          var btn = e.target;
+          var newRole = document.getElementById('roleSelect').value;
+
+          btn.disabled = true;
+          btn.textContent = '更新中…';
+
+          google.script.run
+            .withSuccessHandler(function () {
+              STATE.currentRole = newRole;
+              STATE.roleEditMode = false;
+              render();
+            })
+            .withFailureHandler(function (err) {
+              btn.disabled = false;
+              btn.textContent = '更新';
+              showError('ステータスの更新に失敗しました: ' + errMsg(err));
+            })
+            .updateRole(STATE.currentName, newRole, EVENT_NAME);
+        }
+      })
+    );
+
+    infoCard.appendChild(roleRow);
+
+  } else {
+    infoCard.appendChild(
+      el('div', {
+        style: 'display:flex; align-items:center; gap:10px;'
+      }, [
+        el('span', {
+          text: STATE.currentRole || '(未設定)',
+          style: 'font-size:14px;'
+        }),
+
+        el('span', {
+          text: '✎ 変更',
+          style: 'font-size:12px; color:var(--indigo-soft); cursor:pointer;',
+          onclick: function () {
+            STATE.roleEditMode = true;
+            render();
+          }
+        }),
+
+        el('input', {
+          type: 'hidden',
+          id: 'roleSelect',
+          value: STATE.currentRole
+        })
+      ])
+    );
+  }
+
+  wrap.appendChild(infoCard);
+
+
+  // ---------- 登録済みの予定 ----------
+  if (STATE.entries.length > 0) {
+    var listCard = el('div', { class: 'card' });
+
+    // 「全部削除」ボタン（確認はダイアログではなく画面内の2段階ボタン）
+    var deleteAllArea = STATE.confirmAll
+      ? el('div', { style: 'display:flex; gap:6px;' }, [
+          el('button', {
+            class: 'btn-danger',
+            text: '本当に全部削除',
+            style: 'font-size:12px;',
+            onclick: function () { deleteAllNow(); }
+          }),
+          el('button', {
+            class: 'btn-ghost',
+            text: '戻る',
+            style: 'font-size:12px; padding:6px 10px;',
+            onclick: function () {
+              STATE.confirmAll = false;
+              render();
+            }
+          })
+        ])
+      : el('button', {
+          class: 'btn-ghost',
+          text: '全部削除してやり直す',
+          style: 'font-size:12px; padding:6px 10px;',
+          onclick: function () {
+            STATE.confirmAll = true;
+            STATE.confirmId = '';
+            render();
+          }
+        });
+
+    listCard.appendChild(
+      el('div', {
+        style: 'display:flex; justify-content:space-between; align-items:center;'
+      }, [
+        el('h2', { text: '登録済みの予定', style: 'margin:0;' }),
+        deleteAllArea
+      ])
+    );
+
+    var table = el('table', { style: 'margin-top:10px;' });
+
+    table.appendChild(
+      el('tr', {}, [
+        el('th', { text: '日付' }),
+        el('th', { text: '時間' }),
+        el('th', { text: '状態' }),
+        el('th', {})
+      ])
+    );
+
+    STATE.entries.forEach(function (ev) {
+      var statusText = ev.status === 'busy' ? '予定あり' : ('その他: ' + ev.note);
+      var statusClass = ev.status === 'busy' ? 'status-busy' : 'status-other';
+
+      var actionCell = STATE.confirmId === ev.id
+        ? el('td', {}, [
+            el('button', {
+              class: 'btn-danger',
+              text: '削除',
+              style: 'font-size:12px;',
+              onclick: function () { deleteExisting(ev.id); }
+            }),
+            el('button', {
+              class: 'btn-ghost',
+              text: '戻る',
+              style: 'font-size:12px; padding:4px 8px;',
+              onclick: function () {
+                STATE.confirmId = '';
+                render();
+              }
+            })
+          ])
+        : el('td', {}, [
+            el('button', {
+              class: 'btn-danger',
+              text: '×',
+              title: '削除',
+              onclick: function () {
+                STATE.confirmId = ev.id;
+                STATE.confirmAll = false;
+                render();
+              }
+            })
+          ]);
+
+      table.appendChild(
+        el('tr', {}, [
+          el('td', { text: ev.date }),
+          el('td', { text: ev.start + '〜' + ev.end }),
+          el('td', { text: statusText, class: statusClass }),
+          actionCell
+        ])
+      );
+    });
+
+    listCard.appendChild(table);
+    wrap.appendChild(listCard);
+  }
+
+
+  // ---------- メモから追加 ----------
+  var aiCard = el('div', { class: 'card' });
+
+  aiCard.appendChild(el('h2', { text: 'メモから追加' }));
+
+  aiCard.appendChild(
+    el('div', {
+      text: '予定がある日程を入力してください',
+      style: 'font-size:13px; font-weight:bold; color:var(--indigo);'
+    })
+  );
+
+  aiCard.appendChild(
+    el('div', {
+      class: 'hint',
+      text: '例:「22 1830-2030」「15〜16 終日」「24 演劇祭見に行きたい」のような、雑な書き方でOKです。月や年が省略された日付はイベント期間から判断します。'
+    })
+  );
+
+  aiCard.appendChild(
+    el('textarea', {
+      id: 'noteInput',
+      placeholder: 'ここに貼り付け・入力…',
+      text: STATE.memo,
+      oninput: function (e) { STATE.memo = e.target.value; }
+    })
+  );
+
+  aiCard.appendChild(
+    el('button', {
+      class: 'btn-primary',
+      text: 'AIで変換',
+      style: 'margin-top:10px;',
+      onclick: convertNow
+    })
+  );
+
+  aiCard.appendChild(el('div', { class: 'error', id: 'errorBox' }));
+
+  wrap.appendChild(aiCard);
+
+
+  // ---------- 変換結果のプレビュー ----------
+  if (STATE.pending.length > 0) {
+    var previewCard = el('div', { class: 'card' });
+
+    previewCard.appendChild(
+      el('h2', { text: '変換結果（保存前に確認・修正できます）' })
+    );
+
+    var pTable = el('table', {});
+
+    pTable.appendChild(
+      el('tr', {}, [
+        el('th', { text: '日付' }),
+        el('th', { text: '種類' }),
+        el('th', { text: '開始' }),
+        el('th', { text: '終了' }),
+        el('th', { text: 'メモ' }),
+        el('th', {})
+      ])
+    );
+
+    var typeLabel = {
+      range: '予定あり',
+      note: 'その他',
+      allday: '終日予定あり'
+    };
+
+    STATE.pending.forEach(function (ev, i) {
+      var typeSelect = el('select', {
+        oninput: function (e) {
+          ev.type = e.target.value;
+          render();
+        }
+      });
+
+      ['range', 'note', 'allday'].forEach(function (t) {
+        var o = el('option', { value: t, text: typeLabel[t] });
+
+        if (t === ev.type) {
+          o.selected = true;
+        }
+
+        typeSelect.appendChild(o);
+      });
+
+      pTable.appendChild(
+        el('tr', { class: 'row-edit' }, [
+          el('td', {}, [
+            el('input', {
+              type: 'text',
+              value: ev.date,
+              oninput: function (e) { ev.date = e.target.value; }
+            })
+          ]),
+
+          el('td', {}, [typeSelect]),
+
+          el('td', {},
+            ev.type === 'range'
+              ? [
+                  el('input', {
+                    type: 'text',
+                    value: ev.start || '',
+                    style: 'width:56px;',
+                    oninput: function (e) { ev.start = e.target.value; }
+                  })
+                ]
+              : []
+          ),
+
+          el('td', {},
+            ev.type === 'range'
+              ? [
+                  el('input', {
+                    type: 'text',
+                    value: ev.end || '',
+                    style: 'width:56px;',
+                    oninput: function (e) { ev.end = e.target.value; }
+                  })
+                ]
+              : []
+          ),
+
+          el('td', {},
+            ev.type === 'note'
+              ? [
+                  el('input', {
+                    type: 'text',
+                    value: ev.note || '',
+                    oninput: function (e) { ev.note = e.target.value; }
+                  })
+                ]
+              : []
+          ),
+
+          el('td', {}, [
+            el('button', {
+              class: 'btn-danger',
+              text: '×',
+              onclick: function () {
+                STATE.pending.splice(i, 1);
+                render();
+              }
+            })
+          ])
+        ])
+      );
+    });
+
+    previewCard.appendChild(pTable);
+
+    previewCard.appendChild(
+      el('button', {
+        class: 'btn-primary',
+        text: 'この内容で保存',
+        style: 'margin-top:12px;',
+        onclick: saveNow
+      })
+    );
+
+    wrap.appendChild(previewCard);
+  }
+
+  return wrap;
+}
+
+
+function convertNow(e) {
+  var text = document.getElementById('noteInput').value;
+
+  showError('');
+
+  if (!text.trim()) {
+    showError('テキストを入力してください。');
+    return;
+  }
+
+  STATE.currentName = document.getElementById('nameInput').value;
+  STATE.currentRole = document.getElementById('roleSelect').value;
+
+  var btn = e.target;
+  btn.disabled = true;
+  btn.textContent = '変換中…';
+
+  google.script.run
+    .withSuccessHandler(function (rows) {
+      (rows || []).forEach(function (row) {
+        STATE.pending.push(row);
+      });
+
+      STATE.memo = '';
+      render();
+    })
+    .withFailureHandler(function (err) {
+      showError(errMsg(err));
+      btn.disabled = false;
+      btn.textContent = 'AIで変換';
+    })
+    .convertWithAI(text, EVENT_NAME);
+}
+
+
+function saveNow(e) {
+  var name = document.getElementById('nameInput').value.trim();
+  var role = document.getElementById('roleSelect').value;
+
+  showError('');
+
+  if (!name) {
+    showError('名前を入力してください。');
+    return;
+  }
+
+  if (STATE.pending.length === 0) {
+    return;
+  }
+
+  var btn = e.target;
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+
+  google.script.run
+    .withSuccessHandler(function () {
+      STATE.currentName = name;
+      STATE.currentRole = role;
+      STATE.pending = [];
+      openDetail(name);
+    })
+    .withFailureHandler(function (err) {
+      showError(errMsg(err));
+      btn.disabled = false;
+      btn.textContent = 'この内容で保存';
+    })
+    .saveEntries(name, role, STATE.pending, EVENT_NAME);
+}
+
+
+// 1件削除（確認は画面内の「削除」ボタンで済んでいるので、confirm() は使わない）
+function deleteExisting(id) {
+  showError('削除中…');
+
+  google.script.run
+    .withSuccessHandler(function () {
+      STATE.confirmId = '';
+      openDetail(STATE.currentName);
+    })
+    .withFailureHandler(function (err) {
+      showError('削除に失敗しました: ' + errMsg(err));
+    })
+    .deleteEntry(id, EVENT_NAME);
+}
+
+
+// 全部削除（同じく confirm() は使わない）
+function deleteAllNow() {
+  showError('削除中…');
+
+  google.script.run
+    .withSuccessHandler(function () {
+      STATE.confirmAll = false;
+      openDetail(STATE.currentName);
+    })
+    .withFailureHandler(function (err) {
+      showError('削除に失敗しました: ' + errMsg(err));
+    })
+    .deleteAllForName(STATE.currentName, EVENT_NAME);
+}
+
+
+var urlParamsApplied = false;
+
+function loadNames() {
+  google.script.run
+    .withSuccessHandler(function (names) {
+      STATE.names = names;
+      render();
+
+      if (!urlParamsApplied) {
+        urlParamsApplied = true;
+        applyUrlParams();
+      }
+    })
+    .withFailureHandler(showFatalError)
+    .getNamesList(EVENT_NAME);
+}
+
+
+function applyUrlParams() {
+  var params = new URLSearchParams(window.location.search);
+  var name = params.get('name');
+  var isNew = params.get('new');
+
+  if (name) {
+    openDetail(name);
+  } else if (isNew) {
+    openDetail('');
+  }
+}
+
+
+function showFatalError(err) {
+  var app = document.getElementById('app');
+  app.innerHTML = '';
+
+  app.appendChild(
+    el('div', { class: 'card' }, [
+      el('h2', { text: 'エラーが発生しました', style: 'color:#D6483F;' }),
+      el('div', { class: 'error', text: errMsg(err) })
+    ])
+  );
+}
+
+
+if (!EVENT_NAME) {
+  showFatalError(new Error('イベントが指定されていません。予定表のリンクから開き直してください。'));
+} else {
+  google.script.run
+    .withSuccessHandler(function (opts) {
+      STATE.roleOptions = opts;
+      STATE.currentRole = '';
+      loadNames();
+    })
+    .withFailureHandler(showFatalError)
+    .getRoleOptions(EVENT_NAME);
+}
+</script>
+</body>
+</html>
