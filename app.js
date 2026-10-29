@@ -1299,15 +1299,12 @@ function nameChipClass(
 // ------------------------------------------------------------
 
 function inputUrl(params) {
+  // 入力画面は GitHub Pages 上の input.html（このページと同じフォルダ）
   const url =
     new URL(
-      CONFIG.GAS_URL
+      'input.html',
+      window.location.href
     );
-
-  url.searchParams.set(
-    'page',
-    'input'
-  );
 
   url.searchParams.set(
     'event',
